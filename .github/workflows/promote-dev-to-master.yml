@@ -17,9 +17,8 @@ name: Promote dev → master
 # dev → master merge) before the weekly schedule / "Run workflow" button
 # become active.
 #
-# PREREQS:
-#   - Settings › Actions › General › Workflow permissions = "Read and write"
-#   - `master` branch protection (if any) must allow pushes from Actions
+# `GITHUB_TOKEN` uses the job-specific permissions below. If branch protection
+# is added later, it must allow these Actions pushes.
 
 on:
   schedule:
@@ -28,7 +27,7 @@ on:
   workflow_dispatch: {}      # manual run from the Actions tab
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: master-updates
@@ -37,6 +36,10 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      has_changes: ${{ steps.merge.outputs.has_changes }}
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4
@@ -51,6 +54,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Merge dev into master
+        id: merge
         run: |
           set -euo pipefail
           git fetch origin dev master
@@ -60,6 +64,7 @@ jobs:
           if [ "${ahead}" -eq 0 ]; then
             echo "Nothing to promote — master already matches dev."
             echo "Nothing to promote — master already matches dev." >> "$GITHUB_STEP_SUMMARY"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -72,5 +77,44 @@ jobs:
             exit 1
           fi
 
-          git push origin master
-          echo "✅ Promoted ${ahead} commit(s): dev → master." >> "$GITHUB_STEP_SUMMARY"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "ahead=${ahead}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        if: steps.merge.outputs.has_changes == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.merge.outputs.has_changes == 'true'
+        run: npm ci
+
+      - name: Verify GitHub Pages build
+        if: steps.merge.outputs.has_changes == 'true'
+        run: npm run build:v2
+        env:
+          VITE_BASE: ./
+
+      - name: Push validated promotion
+        if: steps.merge.outputs.has_changes == 'true'
+        run: git push origin master
+
+      - name: Summarize promotion
+        if: steps.merge.outputs.has_changes == 'true'
+        run: |
+          echo "✅ Promoted ${{ steps.merge.outputs.ahead }} commit(s): dev → master." >> "$GITHUB_STEP_SUMMARY"
+          echo "Validated the V2 build before pushing to master." >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-pages:
+    needs: promote
+    if: needs.promote.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Trigger GitHub Pages deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-github-pages.yml --ref master
