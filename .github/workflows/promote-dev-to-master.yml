@@ -31,7 +31,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: promote-dev-to-master
+  group: master-updates
   cancel-in-progress: false
 
 jobs:

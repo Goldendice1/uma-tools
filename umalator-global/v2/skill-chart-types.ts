@@ -6,6 +6,7 @@
  */
 
 import type { RaceSnapshot } from './results-pane';
+import type { SkillConditionMatch } from './team-trials-utils';
 
 /**
  * Single skill test result
@@ -59,6 +60,9 @@ export interface ChartRequestData {
   skills: string[];
   course: any;  // CourseData
   racedef: any;  // RaceParameters
+  courses?: { course: any; racedef: any }[];
+  targetSamples?: number;
+  skillConditions?: Record<string, SkillConditionMatch>;
   uma: any;  // Serialized HorseState
   pacer: any | null;
   options: {

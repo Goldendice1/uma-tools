@@ -192,6 +192,8 @@ function createV1HorseState(strategy: string): HorseState {
 function createV2UmaState(strategy: string): UmaState {
 	return {
 		outfitId: '',
+		starCount: 3,
+		uniqueLv: 1,
 		speed: 1200,
 		stamina: 1000,
 		power: 1000,
@@ -203,6 +205,8 @@ function createV2UmaState(strategy: string): UmaState {
 		strategyAptitude: 'A',
 		mood: 2,
 		skills: [],
+		fastLearner: false,
+		skillHints: {},
 		forcedSkillPositions: {}
 	};
 }

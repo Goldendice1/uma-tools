@@ -19,12 +19,17 @@ const STRATEGY_PROPER_KEYS: Record<number, string> = {
 /**
  * Detect whether an object is a game API response containing chara_info
  */
+function getCharaInfo(obj: any): any {
+	if (!obj || typeof obj !== 'object') return null;
+	return obj.chara_info ?? obj.single_mode_load_common?.chara_info ?? null;
+}
+
 function isGameExportResponse(obj: any): boolean {
-	return obj && typeof obj === 'object'
-		&& obj.chara_info && typeof obj.chara_info === 'object'
-		&& typeof obj.chara_info.speed === 'number'
-		&& typeof obj.chara_info.wiz === 'number'
-		&& Array.isArray(obj.chara_info.skill_array);
+	const ci = getCharaInfo(obj);
+	return ci && typeof ci === 'object'
+		&& typeof ci.speed === 'number'
+		&& typeof ci.wiz === 'number'
+		&& Array.isArray(ci.skill_array);
 }
 
 /**
@@ -34,7 +39,7 @@ function isGameExportResponse(obj: any): boolean {
 export function convertGameExport(obj: any): Record<string, any> | null {
 	if (!isGameExportResponse(obj)) return null;
 
-	const ci = obj.chara_info;
+	const ci = getCharaInfo(obj);
 
 	// Strategy
 	const strategy = STRATEGY_MAP[ci.race_running_style] || 'Senkou';
@@ -83,8 +88,49 @@ export function convertGameExport(obj: any): Record<string, any> | null {
 		strategyAptitude,
 		mood,
 		skills,
+		remainingSP: typeof ci.skill_point === 'number' ? ci.skill_point : undefined,
+		fastLearner: ci.fast_learner === true,
+		skillTips: Array.isArray(ci.skill_tips_array)
+			? ci.skill_tips_array
+				.filter((tip: any) =>
+					tip && typeof tip.group_id === 'number' &&
+					typeof tip.rarity === 'number' && typeof tip.level === 'number'
+				)
+				.map((tip: any) => ({
+					group_id: tip.group_id,
+					rarity: tip.rarity,
+					level: tip.level,
+				}))
+			: [],
 		forcedSkillPositions: {},
 	};
+}
+
+export function skillHintsFromTips(
+	tips: unknown,
+	skills: Record<string, { rarity?: number }>,
+	skillMeta: Record<string, { groupId?: string }>
+): Record<string, number> {
+	if (!Array.isArray(tips)) return {};
+
+	const hints: Record<string, number> = {};
+	for (const value of tips) {
+		if (!value || typeof value !== 'object') continue;
+		const tip = value as { group_id?: unknown; rarity?: unknown; level?: unknown };
+		if (typeof tip.group_id !== 'number' || typeof tip.rarity !== 'number' ||
+			typeof tip.level !== 'number' || !Number.isFinite(tip.level)) continue;
+
+		const level = Math.max(0, Math.min(5, Math.floor(tip.level)));
+		if (level === 0) continue;
+
+		const groupId = String(tip.group_id);
+		for (const [skillId, skill] of Object.entries(skills)) {
+			if (skillMeta[skillId]?.groupId === groupId && skill.rarity === tip.rarity) {
+				hints[skillId] = Math.max(hints[skillId] || 0, level);
+			}
+		}
+	}
+	return hints;
 }
 
 /**

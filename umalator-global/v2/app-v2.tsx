@@ -27,13 +27,23 @@ import {
 
 // Skill chart utilities
 import {
+  calculateOwnedSkillCost,
   getActivateableSkills,
-  getBaseSkillsToTest,
+  getSkillsForChartList,
 } from "./skill-chart-utils";
+import { loadSavedSkillLists, saveSkillLists } from "./skill-lists";
+import { SkillListManager } from "./skill-list-manager";
+import {
+  getSkillConditionMatches,
+  getTeamTrialCourseIds,
+  TEAM_TRIAL_CATEGORIES,
+  type TeamTrialsCategory,
+} from "./team-trials-utils";
 
 import { RaceTrack, RegionDisplayType } from "../../components/RaceTrack";
 import { RaceSummary } from "../../components/RaceSummary";
 import { Language } from "../../components/Language";
+import type { CourseData } from "../../uma-skill-tools/CourseData";
 import {
   CustomSelect,
   Dropdown,
@@ -89,6 +99,7 @@ import {
 } from "./storage";
 import courseData from "../course_data.json";
 import skillnames from "../skillnames.json";
+import skilldata from "../skill_data.json";
 import skillmeta from "../../skill_meta.json";
 import "./v2.css";
 import "./tour/tour.css";
@@ -316,7 +327,13 @@ function App() {
   const [hidePurple, setHidePurple] = useState(false);
   const [showUmaIcons, setShowUmaIcons] = useState(false);
   const [chartFastMode, setChartFastMode] = useState(false); // 2x faster, lower accuracy
-  const [skillHints, setSkillHints] = useState<Map<string, number>>(new Map());
+  const [skillHints, setSkillHints] = useState<Map<string, number>>(
+    () => new Map(Object.entries(savedSession.current?.uma1.skillHints ?? {})),
+  );
+  const [customSkillLists, setCustomSkillLists] = useState(loadSavedSkillLists);
+  const [skillListSelection, setSkillListSelection] = useState("all");
+  const [teamTrialsCategory, setTeamTrialsCategory] = useState<TeamTrialsCategory | "single">("single");
+  const [matchSkillConditions, setMatchSkillConditions] = useState(false);
   const [hiddenSkills, setHiddenSkills] = useState<Set<string>>(new Set());
   const [hideNotInGame, setHideNotInGame] = useState(() => {
 	const saved = localStorage.getItem('umalator_v2_hideNotInGame');
@@ -325,6 +342,31 @@ function App() {
   const [wideSkills, setWideSkills] = useState(() => localStorage.getItem('umalator_v2_wideSkills') !== 'false');
   const [selectedSkillForChart, setSelectedSkillForChart] = useState("");
   const [chartRunType, setChartRunType] = useState("medianrun");
+
+  useEffect(() => {
+    saveSkillLists(customSkillLists);
+  }, [customSkillLists]);
+
+  useEffect(() => {
+    if (skillListSelection.startsWith("custom:") &&
+        !customSkillLists.some(list => `custom:${list.id}` === skillListSelection)) {
+      setSkillListSelection("all");
+    }
+  }, [customSkillLists, skillListSelection]);
+
+  const skillListOptions = useMemo(() => [
+    { value: "all", label: "All general skills" },
+    { value: "inherited", label: "All inherited skills" },
+    { value: "hints", label: `Available hints (${[...skillHints.values()].filter(level => level > 0).length})` },
+    ...customSkillLists.map(list => ({ value: `custom:${list.id}`, label: list.name })),
+  ], [customSkillLists, skillHints]);
+
+  const skillConditionMatches = useMemo(
+    () => matchSkillConditions
+      ? getSkillConditionMatches(skilldata as Record<string, { alternatives?: { condition?: string }[] }>)
+      : undefined,
+    [matchSkillConditions],
+  );
 
   // Simulation worker (for compare mode)
   const worker = useMemo(() => {
@@ -422,6 +464,19 @@ function App() {
   const [uma2, setUma2] = useState<UmaState>(
     savedSession.current?.uma2 ?? defaultUmaState,
   );
+
+  const teamTrialCourses = useMemo(() => {
+    if (teamTrialsCategory === "single") return [];
+    const courseTypes: Record<string, Pick<CourseData, "surface" | "distanceType">> = {};
+    Object.entries(courseData).forEach(([id, course]) => {
+      courseTypes[id] = { surface: course.surface, distanceType: course.distanceType };
+    });
+    return getTeamTrialCourseIds(courseTypes, teamTrialsCategory).map(id => ({
+      id,
+      course: courseData[id],
+      racedef: buildRaceParameters(ground, weather, season, time, uma1.strategy),
+    }));
+  }, [teamTrialsCategory, ground, weather, season, time, uma1.strategy]);
 
   // Map of groupId -> skillId for owned skills (for "Hide Owned" filter in skill chart)
   const hasSkills = useMemo(() => {
@@ -554,7 +609,7 @@ function App() {
           setSeason(state.season);
           setTime(state.time);
           setSamples(state.samples);
-          setUma1(state.uma1);
+          setUma1({ ...state.uma1, skillHints: state.skillHints ?? {} });
           setUma2(state.uma2);
           // Restore hint levels (older links omit this → empty map = all zero).
           setSkillHints(
@@ -601,10 +656,12 @@ function App() {
 
   const handleUma1Load = useCallback((state: UmaState) => {
     setUma1(state);
+    setSkillHints(new Map(Object.entries(state.skillHints ?? {})));
   }, []);
 
   const handleUma1Reset = useCallback(() => {
     setUma1(defaultUmaState);
+    setSkillHints(new Map());
   }, []);
 
   const handleUma2Change = useCallback((updates: Partial<UmaState>) => {
@@ -622,12 +679,35 @@ function App() {
   const handleResetAll = useCallback(() => {
     setUma1(defaultUmaState);
     setUma2(defaultUmaState);
+    setSkillHints(new Map());
   }, []);
 
   const handleSwapUmas = useCallback(() => {
     setUma1(uma2);
     setUma2(uma1);
+    setSkillHints(new Map(Object.entries(uma2.skillHints ?? {})));
   }, [uma1, uma2]);
+
+  const handleUpdateSkillHint = useCallback((id: string, hint: number) => {
+    const level = Math.max(0, Math.min(5, Math.floor(hint)));
+    setSkillHints((previous) => {
+      const next = new Map(previous);
+      if (level > 0) next.set(id, level);
+      else next.delete(id);
+      return next;
+    });
+    setUma1((previous) => {
+      const next = { ...(previous.skillHints ?? {}) };
+      if (level > 0) next[id] = level;
+      else delete next[id];
+      return { ...previous, skillHints: next };
+    });
+  }, []);
+
+  const handleResetSkillHints = useCallback(() => {
+    setSkillHints(new Map());
+    setUma1((previous) => ({ ...previous, skillHints: {} }));
+  }, []);
 
   // Skill info popover state
   const [popoverSkillId, setPopoverSkillId] = useState<string | null>(null);
@@ -720,17 +800,44 @@ function App() {
       time,
       uma1.strategy,
     );
+    const courses = teamTrialsCategory === "single"
+      ? [{ id: courseId, course, racedef }]
+      : teamTrialCourses;
+    if (courses.length === 0) {
+      console.error("[V2] No courses found for Team Trials category:", teamTrialsCategory);
+      setIsRunning(false);
+      return;
+    }
 
     // Get list of skills to test (filter to activateable skills only).
     // Pre-filter not-in-game skills here so we don't waste sim time on skills
     // that would be hidden from the chart display anyway.
-    const baseSkills = getBaseSkillsToTest(uma1, hideNotInGame);
-    const activateableSkills = getActivateableSkills(
-      baseSkills,
-      uma1,
-      course,
-      racedef,
+    const baseSkills = getSkillsForChartList(
+      skillListSelection,
+      skillHints,
+      customSkillLists,
+      hideNotInGame,
     );
+    const conditionGroups = new Map<string, { skills: string[]; condition?: NonNullable<typeof skillConditionMatches>[string] }>();
+    baseSkills.forEach(id => {
+      const condition = skillConditionMatches?.[id];
+      const key = JSON.stringify(condition?.variants.map(variant => variant.overrides) ?? []);
+      const group = conditionGroups.get(key) ?? { skills: [], condition };
+      group.skills.push(id);
+      conditionGroups.set(key, group);
+    });
+    const activateableSkillSet = new Set<string>();
+    conditionGroups.forEach(group => {
+      const variants = group.condition?.variants ?? [{ overrides: {} }];
+      variants.forEach(variant => {
+        courses.forEach(item => {
+          const matchedRace = { ...item.racedef, ...variant.overrides };
+          getActivateableSkills(group.skills, uma1, item.course, matchedRace)
+            .forEach(id => activateableSkillSet.add(id));
+        });
+      });
+    });
+    const activateableSkills = [...activateableSkillSet];
 
     if (activateableSkills.length === 0) {
       console.warn("[V2] No activateable skills found for this course");
@@ -766,8 +873,11 @@ function App() {
             msg: "chart",
             data: {
               skills: batch,
-              course,
-              racedef,
+              course: courses[0].course,
+              racedef: courses[0].racedef,
+              courses: teamTrialsCategory === "single" ? undefined : courses,
+              targetSamples: chartFastMode ? 50 : samples,
+              skillConditions: skillConditionMatches,
               uma: convertUmaStateForWorker(uma1),
               pacer: getDefaultPacer(),
               options: chartOptions,
@@ -789,6 +899,14 @@ function App() {
     seed,
     chartWorkers,
     chartFastMode,
+    skillListSelection,
+    skillHints,
+    customSkillLists,
+    hideNotInGame,
+    teamTrialsCategory,
+    teamTrialCourses,
+    samples,
+    skillConditionMatches,
   ]);
 
   // Run simulation via worker
@@ -1270,13 +1388,20 @@ function App() {
                   ]}
                   className="v2-preset-select"
                 />
-                <V2TrackSelect
-                  courseid={courseId}
-                  setCourseid={(id) => {
-                    setSelectedPresetId(null);
-                    setCourseId(id);
-                  }}
-                />
+                {mode === "skill" && teamTrialsCategory !== "single" ? (
+                  <div class="v2-team-trials-selection">
+                    Team Trials · {TEAM_TRIAL_CATEGORIES.find(item => item.value === teamTrialsCategory)?.label}
+                    <span>{teamTrialCourses.length} tracks</span>
+                  </div>
+                ) : (
+                  <V2TrackSelect
+                    courseid={courseId}
+                    setCourseid={(id) => {
+                      setSelectedPresetId(null);
+                      setCourseId(id);
+                    }}
+                  />
+                )}
               </div>
 
               <div class="v2-header-center">
@@ -1637,6 +1762,47 @@ function App() {
                   <div class="v2-skill-chart-container">
                     {/* Filter controls */}
                     <div class="v2-skill-chart-controls">
+                      <div class="v2-skill-list-controls">
+                        <span>Race set</span>
+                        <CustomSelect
+                          value={teamTrialsCategory}
+                          onChange={(value) => {
+                            if (value === "single" ||
+                                TEAM_TRIAL_CATEGORIES.some(category => category.value === value)) {
+                              setTeamTrialsCategory(value as TeamTrialsCategory | "single");
+                            }
+                          }}
+                          options={[
+                            { value: "single", label: "Single track" },
+                            ...TEAM_TRIAL_CATEGORIES,
+                          ]}
+                          className="v2-skill-list-select"
+                        />
+                        <label class="v2-switch" title="Match each skill's required season, weather, or track condition and weight its mean. Season: Spring 40%, Summer 22%, Fall 12%, Winter 26%. Weather: Sunny 58%, Cloudy 30%, Rainy 11%, Snowy 1%. Track condition: Firm 77%, Good 11%, Soft 7%, Heavy 5%. Turf and Dirt depend on the selected track.">
+                          <input
+                            type="checkbox"
+                            checked={matchSkillConditions}
+                            onChange={(event) => setMatchSkillConditions((event.target as HTMLInputElement).checked)}
+                          />
+                          <span class="v2-switch-slider" />
+                          <span class="v2-switch-label">Match skill (reduced)</span>
+                        </label>
+                        <span>Skill list</span>
+                        <CustomSelect
+                          value={skillListSelection}
+                          onChange={(value) => {
+                            if (typeof value === "string") setSkillListSelection(value);
+                          }}
+                          options={skillListOptions}
+                          className="v2-skill-list-select"
+                        />
+                        <SkillListManager
+                          lists={customSkillLists}
+                          onListsChange={setCustomSkillLists}
+                          onSaved={(id) => setSkillListSelection(`custom:${id}`)}
+                          hideNotInGame={hideNotInGame}
+                        />
+                      </div>
                       <div class="v2-skill-chart-filters">
                         <label class="v2-switch">
                           <input
@@ -1695,11 +1861,31 @@ function App() {
                         </label>
                       </div>
                       <div class="v2-skill-chart-actions">
+                        {uma1.remainingSP !== undefined && (() => {
+                          const usedSP = calculateOwnedSkillCost(uma1.skills);
+                          const difference = uma1.remainingSP - usedSP;
+                          const badgeColor = difference > 0
+                            ? "success"
+                            : difference < 0
+                              ? "danger"
+                              : "neutral";
+                          return (
+                            <span
+                              class="v2-skill-sp-difference"
+                              title={`SP remaining ${uma1.remainingSP.toLocaleString()} − SP used ${usedSP.toLocaleString()}`}
+                            >
+                              SP remaining:
+                              <strong class={`v2-badge v2-badge-${badgeColor}`}>
+                                {difference.toLocaleString()} SP
+                              </strong>
+                            </span>
+                          );
+                        })()}
                         {skillHints.size > 0 && (
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => setSkillHints(new Map())}
+                            onClick={handleResetSkillHints}
                           >
                             Reset Hints
                           </Button>
@@ -1735,17 +1921,14 @@ function App() {
                       <SkillChartPane
                         data={Array.from(skillChartResults.values())}
                         courseDistance={
-                          (courseData as any)[courseId]?.distance ?? 2000
+                          teamTrialsCategory === "single"
+                            ? (courseData as any)[courseId]?.distance ?? 2000
+                            : teamTrialCourses[0]?.course.distance ?? 2000
                         }
                         hints={skillHints}
+                        fastLearner={uma1.fastLearner}
                         hasSkills={hasSkills}
-                        updateHint={(id, hint) => {
-                          setSkillHints((prev) => {
-                            const next = new Map(prev);
-                            next.set(id, hint);
-                            return next;
-                          });
-                        }}
+                        updateHint={handleUpdateSkillHint}
                         onRunTypeChange={setChartRunType}
                         onSelectionChange={setSelectedSkillForChart}
                         onInfoClick={handleShowSkillInfo}
@@ -2228,13 +2411,20 @@ function App() {
                   <div class="v2-mobile-settings-content">
                     <div class="v2-mobile-settings-section">
                       <h4>Track & Course</h4>
-                      <V2TrackSelect
-                        courseid={courseId}
-                        setCourseid={(id) => {
-                          setSelectedPresetId(null);
-                          setCourseId(id);
-                        }}
-                      />
+                      {mode === "skill" && teamTrialsCategory !== "single" ? (
+                        <div class="v2-team-trials-selection">
+                          Team Trials · {TEAM_TRIAL_CATEGORIES.find(item => item.value === teamTrialsCategory)?.label}
+                          <span>{teamTrialCourses.length} tracks</span>
+                        </div>
+                      ) : (
+                        <V2TrackSelect
+                          courseid={courseId}
+                          setCourseid={(id) => {
+                            setSelectedPresetId(null);
+                            setCourseId(id);
+                          }}
+                        />
+                      )}
                     </div>
                     <div class="v2-mobile-settings-section">
                       <h4>Mode</h4>

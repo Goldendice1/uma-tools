@@ -9,6 +9,11 @@ import { runComparison } from '../../umalator/compare';
 import { runHpCalc } from '../../umalator/hpcalc';
 import { runComparison as runComparisonV1 } from '../../umalator/compare-v1';
 import { runHpCalc as runHpCalcV1 } from '../../umalator/hpcalc-v1';
+import {
+	applyConditionProbability,
+	getTeamTrialSampleCount,
+	type SkillConditionMatch,
+} from './team-trials-utils';
 
 // Engine v1 is alpha123's published solver, vendored verbatim (tools/sync-upstream-engine.mjs).
 // Its glue takes a seed tuple where ours takes a pacemaker, and it emits only p/v/hp/sk/sdly/dh
@@ -143,6 +148,21 @@ function mergeResultSets(data1: Map<string, any>, data2: Map<string, any>) {
 	});
 }
 
+function weightedMedian(values: { value: number; weight: number }[], totalWeight: number): number {
+	if (values.length === 0 || totalWeight <= 0) return 0;
+	values.sort((a, b) => a.value - b.value);
+	const midpoint = totalWeight / 2;
+	let accumulated = 0;
+	for (let i = 0; i < values.length; i++) {
+		accumulated += values[i].weight;
+		if (accumulated > midpoint) return values[i].value;
+		if (Math.abs(accumulated - midpoint) < 1e-12 && i + 1 < values.length) {
+			return (values[i].value + values[i + 1].value) / 2;
+		}
+	}
+	return values[values.length - 1].value;
+}
+
 /**
  * Run one round of chart testing for a skill list
  */
@@ -154,7 +174,9 @@ function runChartRound(
 	uma: HorseState,
 	pacer: HorseState | null,
 	options: any,
-	skillmeta: any
+	skillmeta: any,
+	courses?: { course: any; racedef: any }[],
+	skillConditions?: Record<string, SkillConditionMatch>
 ) {
 	const data = new Map();
 
@@ -173,26 +195,69 @@ function runChartRound(
 		// Add test skill to uma
 		const withSkill = uma.set('skills', skillsToUse.set(skillmeta[id].groupId, id));
 
-		// Run comparison
 		const chartEngine = pickEngine(options);
-		const { results, runData } = chartEngine.runComparison(nsamples, course, racedef, chartEngine.horse(uma), chartEngine.horse(withSkill),
-			chartEngine.sixth(pacer, options?.seed), options);
+		const condition = skillConditions?.[id];
+		const courseRuns = courses?.length ? courses : [{ course, racedef }];
+		const samplesPerCourse = nsamples / courseRuns.length;
+		const variants = condition?.variants ?? [{ overrides: {}, probability: 1 }];
+		const weightedValues: { value: number; weight: number }[] = [];
+		let weightedMean = 0;
+		let totalProbability = 0;
+		let minimum = Infinity;
+		let maximum = -Infinity;
+		let sampleCount = 0;
+		let runData: any = null;
+		variants.forEach((variant, variantIndex) => {
+			const variantResults: number[] = [];
+			courseRuns.forEach((entry, courseIndex) => {
+				const matchedRace = { ...entry.racedef, ...variant.overrides };
+				const seed = ((options?.seed ?? 0) + variantIndex * courseRuns.length + courseIndex) >>> 0;
+				const seededOptions = { ...options, seed };
+				const run = chartEngine.runComparison(
+					samplesPerCourse,
+					entry.course,
+					matchedRace,
+					chartEngine.horse(uma),
+					chartEngine.horse(withSkill),
+					chartEngine.sixth(pacer, seed),
+					seededOptions
+				);
+				variantResults.push(...run.results);
+				runData = runData ?? run.runData;
+			});
+			variantResults.sort((a, b) => a - b);
+			const variantMean = variantResults.reduce((sum, value) => sum + value, 0) / variantResults.length;
+			weightedMean += variantMean * variant.probability;
+			totalProbability += variant.probability;
+			sampleCount += variantResults.length;
+			if (variantResults.length > 0) {
+				minimum = Math.min(minimum, variantResults[0]);
+				maximum = Math.max(maximum, variantResults[variantResults.length - 1]);
+				variantResults.forEach(value => weightedValues.push({
+					value,
+					weight: variant.probability / variantResults.length,
+				}));
+			}
+		});
 
-		// Calculate statistics
-		const mid = Math.floor(results.length / 2);
-		const median = results.length % 2 === 0 ? (results[mid - 1] + results[mid]) / 2 : results[mid];
-		const mean = results.reduce((a, b) => a + b, 0) / results.length;
+		const conditionalMean = totalProbability > 0 ? weightedMean / totalProbability : 0;
+		const conditionalMedian = weightedMedian(weightedValues, totalProbability);
+		const weightedStats = applyConditionProbability(conditionalMean, conditionalMedian, totalProbability);
+		if (totalProbability < 1) {
+			minimum = Math.min(minimum, 0);
+			maximum = Math.max(maximum, 0);
+		}
 
 		// Store stats and runData (needed for track visualization)
 		data.set(id, {
 			id,
 			results: [], // Empty - detailed data not needed
 			runData, // Keep runData for skill activation visualization
-			min: results[0],
-			max: results[results.length - 1],
-			mean,
-			median,
-			sampleCount: nsamples
+			min: minimum,
+			max: maximum,
+			mean: weightedStats.mean,
+			median: weightedStats.median,
+			sampleCount
 		});
 	});
 
@@ -218,10 +283,13 @@ function runChartRound(
  *   v2-variance:     8144ms = 1.17x faster
  *   v2-turbo:        4523ms = 2.10x faster
  */
-function runChart({ skills, course, racedef, uma, pacer, options, skillmeta, workerId, fastMode }: {
+function runChart({ skills, course, racedef, courses, targetSamples, skillConditions, uma, pacer, options, skillmeta, workerId, fastMode }: {
 	skills: string[];
 	course: any;
 	racedef: any;
+	courses?: { course: any; racedef: any }[];
+	targetSamples?: number;
+	skillConditions?: Record<string, SkillConditionMatch>;
 	uma: any;
 	pacer: any;
 	options: any;
@@ -235,11 +303,23 @@ function runChart({ skills, course, racedef, uma, pacer, options, skillmeta, wor
 
 	const chartOptions = { ...options, mode: 'chart' };
 
+	if (courses?.length) {
+		const requestedSamples = Math.max(1, targetSamples ?? (fastMode ? 50 : 200));
+		const totalSamples = getTeamTrialSampleCount(requestedSamples, courses.length);
+		self.postMessage({ type: 'chart-progress', workerId, round: 1, total: 1 });
+		const results = runChartRound(
+			totalSamples, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta, courses, skillConditions
+		);
+		self.postMessage({ type: 'chart-update', workerId, results });
+		self.postMessage({ type: 'chart-complete', workerId });
+		return;
+	}
+
 	if (fastMode) {
 		// FAST MODE: Single round, 50 samples, no filtering
 		// 2x faster than kachi, best for mobile/low-end devices
 		self.postMessage({ type: 'chart-progress', workerId, round: 1, total: 1 });
-		const results = runChartRound(50, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta);
+		const results = runChartRound(50, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta, undefined, skillConditions);
 		self.postMessage({ type: 'chart-update', workerId, results });
 		self.postMessage({ type: 'chart-complete', workerId });
 		return;
@@ -248,7 +328,7 @@ function runChart({ skills, course, racedef, uma, pacer, options, skillmeta, wor
 	// DEFAULT MODE: 2-round progressive refinement (v2-variance strategy)
 	// Round 1: 25 samples per skill (fast initial scan, same as kachi)
 	self.postMessage({ type: 'chart-progress', workerId, round: 1, total: 2 });
-	let results = runChartRound(25, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta);
+	let results = runChartRound(25, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta, undefined, skillConditions);
 	self.postMessage({ type: 'chart-update', workerId, results });
 
 	// Combined filter (equivalent to kachi's two-stage filtering):
@@ -263,7 +343,7 @@ function runChart({ skills, course, racedef, uma, pacer, options, skillmeta, wor
 
 	// Round 2: 175 samples for promising skills (200 total, same final accuracy as kachi)
 	self.postMessage({ type: 'chart-progress', workerId, round: 2, total: 2 });
-	const update = runChartRound(175, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta);
+	const update = runChartRound(175, skills, course, racedef, uma_, pacer_, chartOptions, skillmeta, undefined, skillConditions);
 	mergeResultSets(results, update);
 	self.postMessage({ type: 'chart-update', workerId, results });
 

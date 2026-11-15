@@ -9,7 +9,7 @@ import { CourseData } from '../../uma-skill-tools/CourseData';
 import { RaceParameters } from '../../uma-skill-tools/RaceParameters';
 import { getParser } from '../../uma-skill-tools/ConditionParser';
 import { buildBaseStats, buildSkillData, Perspective } from '../../uma-skill-tools/RaceSolverBuilder';
-import type { UmaState } from './storage';
+import type { UmaState } from './uma-panel';
 import type { SkillChartResult } from './skill-chart-types';
 
 // Import data files
@@ -17,6 +17,7 @@ import skilldata from '../skill_data.json';
 import skillmeta from '../../skill_meta.json';
 import umas from '../../umas.json';
 import notInGame from '../not-in-game.json';
+import type { SavedSkillList } from './skill-lists';
 
 /**
  * Check if a skill is a purple (evolved) variant
@@ -36,7 +37,7 @@ export const skillGroups = Object.keys(skilldata).sort((a, b) =>
 	//   - rarity (lowest to highest: white → gold → pink)
 	//   - if rarity is same, sort ○ before ◎ (◎ skills have lower ID than ○ counterparts)
 	//   - sort purple versions last (to avoid counting towards total cost)
-	isPurpleSkill(a) - isPurpleSkill(b) || skilldata[a].rarity - skilldata[b].rarity || +b - +a
+	Number(isPurpleSkill(a)) - Number(isPurpleSkill(b)) || skilldata[a].rarity - skilldata[b].rarity || +b - +a
 ).reduce((groups, id) => {
 	const groupId = skillmeta[id]?.groupId;
 	if (groupId) {
@@ -54,8 +55,9 @@ export const skillGroups = Object.keys(skilldata).sort((a, b) =>
  * Hint levels 1-3: 10% reduction per level
  * Hint levels 4-5: 30% + 5% per level above 3
  */
-function scaleBaseCost(baseCost: number, hint: number): number {
-	return Math.floor(baseCost * (1 - (hint <= 3 ? 0.1 * hint : 0.3 + 0.05 * (hint - 3))));
+function scaleBaseCost(baseCost: number, hint: number, fastLearner: boolean): number {
+	const hintDiscount = hint <= 3 ? 0.1 * hint : 0.3 + 0.05 * (hint - 3);
+	return Math.floor(baseCost * (1 - hintDiscount) * (fastLearner ? 0.9 : 1));
 }
 
 /**
@@ -65,7 +67,8 @@ function scaleBaseCost(baseCost: number, hint: number): number {
 export function calculateSkillCost(
 	id: string,
 	hints: Map<string, number>,
-	ownedSkills: Map<string, string>
+	ownedSkills: Map<string, string>,
+	fastLearner: boolean = false
 ): number {
 	const groupId = skillmeta[id]?.groupId;
 	if (!groupId) return 0;
@@ -74,21 +77,56 @@ export function calculateSkillCost(
 	if (!group) return 0;
 
 	const existing = ownedSkills.get(groupId);
+	const targetIndex = group.indexOf(id);
+	if (targetIndex < 0) return 0;
+	const ownedIndex = existing ? group.indexOf(existing) : -1;
+	if (ownedIndex >= targetIndex) return 0;
 	let cost = 0;
 
-	for (let i = 0; i < group.length; ++i) {
-		// Don't count cost of already-owned skill in same group
-		if (group[i] !== existing) {
-			const hint = hints.get(group[i]) || 0;
-			cost += scaleBaseCost(skillmeta[group[i]].baseCost, hint);
-		}
-		// Stop when we reach the target skill
-		if (group[i] === id) {
-			break;
-		}
+	for (let i = ownedIndex + 1; i <= targetIndex; ++i) {
+		const hint = hints.get(group[i]) || 0;
+		cost += scaleBaseCost(skillmeta[group[i]].baseCost, hint, fastLearner);
 	}
 
 	return cost;
+}
+
+/**
+ * Calculate the base SP cost of all currently owned skills, counting each
+ * prerequisite chain only through its highest owned tier.
+ */
+export function calculateOwnedSkillCost(skills: string[]): number {
+	const selectedByGroup = new Map<string, Set<string>>();
+	let total = 0;
+
+	for (const id of skills) {
+		const meta = skillmeta[id];
+		if (!meta) continue;
+		const groupId = meta.groupId;
+		if (!groupId) {
+			total += meta.baseCost ?? 0;
+			continue;
+		}
+		if (!selectedByGroup.has(groupId)) selectedByGroup.set(groupId, new Set());
+		selectedByGroup.get(groupId)!.add(id);
+	}
+
+	for (const [groupId, selectedInGroup] of selectedByGroup) {
+		const group = skillGroups.get(groupId);
+		if (!group) {
+			for (const id of selectedInGroup) total += skillmeta[id]?.baseCost ?? 0;
+			continue;
+		}
+		let highestOwnedIndex = -1;
+		for (let i = 0; i < group.length; i++) {
+			if (selectedInGroup.has(group[i])) highestOwnedIndex = i;
+		}
+		for (let i = 0; i <= highestOwnedIndex; i++) {
+			total += skillmeta[group[i]]?.baseCost ?? 0;
+		}
+	}
+
+	return total;
 }
 
 /**
@@ -216,6 +254,31 @@ export function getBaseSkillsToTest(uma: UmaState, hideNotInGame: boolean = fals
 		if (notInGameSet && notInGameSet.has(id)) return false;
 		return true;
 	});
+}
+
+export function getSkillsForChartList(
+	selection: string,
+	hints: Map<string, number>,
+	customLists: SavedSkillList[],
+	hideNotInGame: boolean
+): string[] {
+	let ids: string[];
+	if (selection === 'inherited') {
+		ids = Object.keys(skilldata).filter(id => id[0] === '9');
+	} else if (selection === 'hints') {
+		ids = Array.from(hints).filter(([, level]) => level > 0).map(([id]) => id);
+	} else if (selection.startsWith('custom:')) {
+		const list = customLists.find(item => `custom:${item.id}` === selection);
+		ids = list?.skillIds ?? [];
+	} else {
+		ids = Object.keys(skilldata).filter(isGeneralSkill);
+	}
+
+	const notInGameSet = hideNotInGame ? new Set(notInGame.skills) : null;
+	return [...new Set(ids)].filter(id =>
+		Object.prototype.hasOwnProperty.call(skilldata, id) &&
+		(!notInGameSet || !notInGameSet.has(id))
+	);
 }
 
 /**

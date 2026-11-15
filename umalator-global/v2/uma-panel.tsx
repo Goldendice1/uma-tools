@@ -30,8 +30,7 @@ import { OCRModal } from './ocr-modal';
 import umas from '../umas.json';
 import icons from '../../icons.json';
 import skilldata from '../skill_data.json';
-import skillmeta from '../../skill_meta.json';
-import { skillGroups } from './skill-chart-utils';
+import { calculateOwnedSkillCost } from './skill-chart-utils';
 import notInGame from '../not-in-game.json';
 
 // ============================================
@@ -95,6 +94,9 @@ export interface UmaState {
 	mood: Mood;
 	skills: string[];
 	forcedSkillPositions: Record<string, string>;
+	remainingSP?: number;
+	fastLearner: boolean;
+	skillHints: Record<string, number>;
 }
 
 // Default state
@@ -114,6 +116,8 @@ export const defaultUmaState: UmaState = {
 	mood: 2,
 	skills: [],
 	forcedSkillPositions: {},
+	fastLearner: false,
+	skillHints: {},
 };
 
 // ============================================
@@ -371,6 +375,42 @@ export function StatsGrid({ state, onChange }: StatsGridProps) {
 					onChange={val => onChange({ [s.key]: val })}
 				/>
 			))}
+		</div>
+	);
+}
+
+function CareerSettings({ state, onChange }: StatsGridProps) {
+	const updateNumber = (field: 'remainingSP', raw: string) => {
+		const numericValue = raw === '' ? undefined : Number(raw);
+		const value = numericValue === undefined || !Number.isFinite(numericValue)
+			? numericValue
+			: Math.floor(numericValue);
+		if (value === undefined || (Number.isFinite(value) && value >= 0)) {
+			onChange({ [field]: value });
+		}
+	};
+
+	return (
+		<div class="v2-career-settings">
+			<label class="v2-career-number">
+				<span>Available SP</span>
+				<input
+					type="number"
+					min="0"
+					step="1"
+					value={state.remainingSP ?? ''}
+					onInput={e => updateNumber('remainingSP', (e.target as HTMLInputElement).value)}
+				/>
+			</label>
+			<label class="v2-switch" title="Fast Learner reduces the cost of each skill by another 10%">
+				<input
+					type="checkbox"
+					checked={state.fastLearner}
+					onChange={e => onChange({ fastLearner: (e.target as HTMLInputElement).checked })}
+				/>
+				<span class="v2-switch-slider" />
+				<span class="v2-switch-label">Fast Learner (−10% SP)</span>
+			</label>
 		</div>
 	);
 }
@@ -851,6 +891,10 @@ export function V2UmaPanel({ state, onChange, onLoad, onReset, onResetAll, title
 				<StatsGrid state={state} onChange={onChange} />
 			</CollapsibleSection>
 
+			<CollapsibleSection title="Career" defaultOpen={true}>
+				<CareerSettings state={state} onChange={onChange} />
+			</CollapsibleSection>
+
 			{/* Aptitudes */}
 			<CollapsibleSection title="Aptitudes" defaultOpen={true}>
 				<AptitudesSection state={state} onChange={onChange} />
@@ -858,37 +902,7 @@ export function V2UmaPanel({ state, onChange, onLoad, onReset, onResetAll, title
 
 			{/* Skills */}
 			<CollapsibleSection title="Skills" badge={(() => {
-				// Total SP = sum across each group of (chain cost up to the highest-selected skill).
-				// Mirrors in-game pricing: buying a gold ◎ also charges for the prerequisite ○/×.
-				const meta = skillmeta as Record<string, { baseCost?: number; groupId?: string }>;
-				const selectedByGroup = new Map<string, Set<string>>();
-				let total = 0;
-				for (const id of state.skills) {
-					const m = meta[id];
-					if (!m) continue;
-					const gid = m.groupId;
-					if (!gid) {
-						total += m.baseCost ?? 0;
-						continue;
-					}
-					if (!selectedByGroup.has(gid)) selectedByGroup.set(gid, new Set());
-					selectedByGroup.get(gid)!.add(id);
-				}
-				for (const [gid, selectedInGroup] of selectedByGroup) {
-					const sorted = skillGroups.get(gid);
-					if (!sorted) {
-						for (const id of selectedInGroup) total += meta[id]?.baseCost ?? 0;
-						continue;
-					}
-					let maxPos = -1;
-					for (let i = 0; i < sorted.length; i++) {
-						if (selectedInGroup.has(sorted[i])) maxPos = i;
-					}
-					if (maxPos < 0) continue;
-					for (let i = 0; i <= maxPos; i++) {
-						total += meta[sorted[i]]?.baseCost ?? 0;
-					}
-				}
+				const total = calculateOwnedSkillCost(state.skills);
 				return `${state.skills.length} · ${total.toLocaleString()} SP`;
 			})()} defaultOpen={true} headerAction={
 				<span
