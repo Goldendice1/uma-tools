@@ -27,6 +27,7 @@ interface SkillChartPaneProps {
 	data: SkillChartResult[];
 	courseDistance: number;
 	hints: Map<string, number>;
+	fastLearner: boolean;
 	hasSkills: Map<string, string>;
 	updateHint: (id: string, hint: number) => void;
 	onRunTypeChange: (type: string) => void;
@@ -95,10 +96,11 @@ function SkillCostCell(props: {
 	hint: number;
 	hints: Map<string, number>;
 	ownedSkills: Map<string, string>;
+	fastLearner: boolean;
 	updateHint: (id: string, hint: number) => void;
 }) {
-	const { id, hint, hints, ownedSkills, updateHint } = props;
-	const cost = calculateSkillCost(id, hints, ownedSkills);
+	const { id, hint, hints, ownedSkills, fastLearner, updateHint } = props;
+	const cost = calculateSkillCost(id, hints, ownedSkills, fastLearner);
 
 	return (
 		<Fragment>
@@ -213,10 +215,10 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 	}, {
 		header: () => <span>Skill name</span>,
 		accessorKey: 'id',
-		cell: (info) => <SkillNameCell id={info.getValue()} showUmaIcons={props.showUmaIcons} />,
+		cell: (info) => <SkillNameCell id={info.getValue<string>()} showUmaIcons={props.showUmaIcons} />,
 		sortingFn: (a, b, _) => {
-			const nameA = skillnames[a.getValue('id')] || '';
-			const nameB = skillnames[b.getValue('id')] || '';
+			const nameA = skillnames[a.getValue<string>('id')] || '';
+			const nameB = skillnames[b.getValue<string>('id')] || '';
 			return nameA < nameB ? -1 : 1;
 		}
 	}, {
@@ -247,19 +249,20 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 				{...info.getValue()}
 				hints={props.hints}
 				ownedSkills={props.hasSkills}
+				fastLearner={props.fastLearner}
 				updateHint={props.updateHint}
 			/>
 		),
 		sortingFn: (a, b) => {
-			const ac = calculateSkillCost(a.getValue('id'), props.hints, props.hasSkills);
-			const bc = calculateSkillCost(b.getValue('id'), props.hints, props.hasSkills);
+			const ac = calculateSkillCost(a.getValue('id'), props.hints, props.hasSkills, props.fastLearner);
+			const bc = calculateSkillCost(b.getValue('id'), props.hints, props.hasSkills, props.fastLearner);
 			return +(bc < ac) - +(ac < bc);
 		},
 		sortDescFirst: false
 	}, {
 		header: (c) => <span onClick={c.header.column.getToggleSortingHandler()}>L / SP</span>,
 		id: 'bsp',
-		accessorFn: (row) => row.mean / calculateSkillCost(row.id, props.hints, props.hasSkills),
+		accessorFn: (row) => row.mean / calculateSkillCost(row.id, props.hints, props.hasSkills, props.fastLearner),
 		cell: (info) => {
 			const x = info.getValue();
 			return <span>{Number.isFinite(x) ? x.toFixed(6) : '--'}</span>;
@@ -272,7 +275,7 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 			return xf && yf ? +(y < x) - +(x < y) : +xf - +yf;
 		},
 		sortDescFirst: true
-	}], [selectedType, props.showUmaIcons, props.hints, props.hasSkills, radioGroup, props.onHideSkill]);
+	}], [selectedType, props.showUmaIcons, props.hints, props.fastLearner, props.hasSkills, radioGroup, props.onHideSkill]);
 
 	const [sorting, setSorting] = useState<SortingState>([{ id: 'median', desc: true }]);
 

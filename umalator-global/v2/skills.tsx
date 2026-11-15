@@ -682,9 +682,11 @@ interface SkillPickerModalProps {
 	onSelect: (skillId: string) => void;
 	selectedSkills: string[];
 	hideNotInGame: boolean;
+	multiSelect?: boolean;
+	confirmLabel?: string;
 }
 
-export function SkillPickerModal({ isOpen, onClose, onSelect, selectedSkills, hideNotInGame }: SkillPickerModalProps) {
+export function SkillPickerModal({ isOpen, onClose, onSelect, selectedSkills, hideNotInGame, multiSelect = false, confirmLabel = 'Done' }: SkillPickerModalProps) {
 	const [searchQuery, setSearchQuery] = useState('');
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [showUnreleased, setShowUnreleased] = useState(false);
@@ -793,13 +795,13 @@ export function SkillPickerModal({ isOpen, onClose, onSelect, selectedSkills, hi
 		} else if (e.key === 'Enter' && activeIdx >= 0 && activeIdx < len) {
 			e.preventDefault();
 			const skillId = filteredSkills[activeIdx];
-			if (!selectedSkills.includes(skillId)) {
+			if (multiSelect || !selectedSkills.includes(skillId)) {
 				onSelect(skillId);
 			}
 		} else if (e.key === 'Escape') {
 			onClose();
 		}
-	}, [filteredSkills, activeIdx, selectedSkills, onSelect, onClose]);
+	}, [filteredSkills, activeIdx, selectedSkills, onSelect, onClose, multiSelect]);
 
 	// Scroll active item into view
 	useEffect(() => {
@@ -1001,11 +1003,11 @@ export function SkillPickerModal({ isOpen, onClose, onSelect, selectedSkills, hi
 								type="button"
 								class={`v2-skill-picker-item ${rarityClass} ${isSelected ? 'selected' : ''} ${i === activeIdx ? 'active' : ''}`}
 								onClick={() => {
-									if (!isSelected) {
+									if (multiSelect || !isSelected) {
 										onSelect(id);
 									}
 								}}
-								disabled={isSelected}
+								disabled={isSelected && !multiSelect}
 							>
 								<img src={icon} alt="" class="v2-skill-picker-item-icon" />
 								<span class="v2-skill-picker-item-name">{name}</span>
@@ -1019,6 +1021,12 @@ export function SkillPickerModal({ isOpen, onClose, onSelect, selectedSkills, hi
 						</div>
 					)}
 				</div>
+				{multiSelect && (
+					<div class="v2-skill-picker-footer">
+						<span>{selectedSkills.length} selected</span>
+						<button type="button" class="v2-skill-picker-done" onClick={onClose}>{confirmLabel}</button>
+					</div>
+				)}
 			</div>
 		</div>
 	);

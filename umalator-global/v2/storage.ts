@@ -9,10 +9,24 @@
 import { UmaState, defaultUmaState } from './uma-panel';
 import umas from '../umas.json'; // Use global version for English names
 import skilldata from '../skill_data.json'; // Use Global version
-import { tryParseImportText } from '../../components/gameExportParser';
+import skillmeta from '../../skill_meta.json';
+import { skillHintsFromTips, tryParseImportText } from '../../components/gameExportParser';
 
 // LocalStorage keys
 const HORSE_SLOTS_KEY = 'umalator_v2_horse_slots';
+
+function parseSkillHints(value: unknown): Record<string, number> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+	const hints: Record<string, number> = {};
+	for (const [id, rawLevel] of Object.entries(value)) {
+		const level = typeof rawLevel === 'number' && Number.isFinite(rawLevel)
+			? Math.max(0, Math.min(5, Math.floor(rawLevel)))
+			: 0;
+		if (level > 0 && (skilldata as Record<string, any>)[id]) hints[id] = level;
+	}
+	return hints;
+}
 const FOLDERS_KEY = 'umalator_v2_trainee_folders';
 const SESSION_KEY = 'umalator_v2_session';
 const PREFERENCES_KEY = 'umalator_v2_prefs';
@@ -63,6 +77,15 @@ export function validateAndParseUmaJson(json: any): UmaState | null {
 		return (skilldata as Record<string, any>)[baseId];
 	});
 
+	const validHints = parseSkillHints(json.skillHints);
+	const skillHints = Object.keys(validHints).length > 0
+		? validHints
+		: skillHintsFromTips(
+			json.skillTips,
+			skilldata as Record<string, { rarity?: number }>,
+			skillmeta as Record<string, { groupId?: string }>
+		);
+
 	// Parse forcedSkillPositions - validate it's an object with string values
 	let forcedSkillPositions: Record<string, string> = {};
 	if (json.forcedSkillPositions && typeof json.forcedSkillPositions === 'object') {
@@ -88,6 +111,9 @@ export function validateAndParseUmaJson(json: any): UmaState | null {
 		strategyAptitude: json.strategyAptitude,
 		mood: json.mood,
 		skills: validSkills,
+		remainingSP: typeof json.remainingSP === 'number' && Number.isFinite(json.remainingSP) ? Math.max(0, Math.floor(json.remainingSP)) : undefined,
+		fastLearner: json.fastLearner === true,
+		skillHints,
 		forcedSkillPositions,
 	};
 }
@@ -700,6 +726,7 @@ export async function deserializeStateFromHash(hash: string): Promise<ShareableS
 		const uma1 = validateAndParseUmaJson(parsed.uma1);
 		const uma2 = validateAndParseUmaJson(parsed.uma2);
 		if (!uma1 || !uma2) return null;
+		const skillHints = parseSkillHints(parsed.skillHints);
 
 		return {
 			courseId: typeof parsed.courseId === 'number' ? parsed.courseId : 10506,
@@ -710,7 +737,7 @@ export async function deserializeStateFromHash(hash: string): Promise<ShareableS
 			samples: typeof parsed.samples === 'number' ? parsed.samples : 500,
 			uma1,
 			uma2,
-			skillHints: (parsed.skillHints && typeof parsed.skillHints === 'object') ? parsed.skillHints : {},
+			skillHints: Object.keys(skillHints).length > 0 ? skillHints : uma1.skillHints ?? {},
 		};
 	} catch (e) {
 		console.error('Failed to deserialize state from hash:', e);
