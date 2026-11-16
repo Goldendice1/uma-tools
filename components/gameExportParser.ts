@@ -121,7 +121,6 @@ export function skillHintsFromTips(
 			typeof tip.level !== 'number' || !Number.isFinite(tip.level)) continue;
 
 		const level = Math.max(0, Math.min(5, Math.floor(tip.level)));
-		if (level === 0) continue;
 
 		const groupId = String(tip.group_id);
 		for (const [skillId, skill] of Object.entries(skills)) {
