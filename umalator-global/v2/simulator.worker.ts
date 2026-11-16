@@ -97,10 +97,11 @@ function convertToHorseState(uma: any): HorseState {
 /**
  * Run comparison simulation with progressive updates
  */
-function runCompare({ nsamples, course, racedef, uma1, uma2, pacer, options }: {
+function runCompare({ nsamples, course, racedef, courses, uma1, uma2, pacer, options }: {
 	nsamples: number;
 	course: any;
 	racedef: any;
+	courses?: { course: any; racedef: any }[];
 	uma1: any;
 	uma2: any;
 	pacer: any;
@@ -115,24 +116,57 @@ function runCompare({ nsamples, course, racedef, uma1, uma2, pacer, options }: {
 
 	const compareOptions = { ...options, mode: 'compare' };
 	const engine = pickEngine(options);
-	const arg6 = engine.sixth(pacer_, options?.seed);
+	const courseRuns = courses?.length ? courses : [{ course, racedef }];
+	const totalSamples = courses?.length ? getTeamTrialSampleCount(nsamples, courseRuns.length) : nsamples;
+	const runComparisonRound = (requestedSamples: number) => {
+		const roundSamples = courses?.length
+			? getTeamTrialSampleCount(requestedSamples, courseRuns.length)
+			: requestedSamples;
+		const samplesPerCourse = roundSamples / courseRuns.length;
+		const courseResults = courseRuns.map((entry, courseIndex) => {
+			const courseSeed = courses?.length
+				? ((options?.seed ?? 0) + courseIndex) >>> 0
+				: options?.seed;
+			const courseOptions = courses?.length
+				? { ...compareOptions, seed: courseSeed }
+				: compareOptions;
+			return engine.runComparison(
+				samplesPerCourse,
+				entry.course,
+				entry.racedef,
+				engine.horse(uma1_),
+				engine.horse(uma2_),
+				engine.sixth(pacer_, courseSeed),
+				courseOptions
+			);
+		});
+		return {
+			...courseResults[0],
+			results: courseResults.flatMap(result => result.results).sort((a: number, b: number) => a - b),
+		};
+	};
 
 	// Progressive sampling: start small and increase
 	// This provides early feedback to the UI
 	let results: any;
-	for (let n = Math.min(20, nsamples), mul = 6; n < nsamples; n = Math.min(n * mul, nsamples), mul = Math.max(mul - 1, 2)) {
-		results = engine.runComparison(n, course, racedef, engine.horse(uma1_), engine.horse(uma2_), arg6, compareOptions);
-		self.postMessage({ type: 'compare', results });
+	for (let n = Math.min(20, totalSamples), mul = 6; n < totalSamples; n = Math.min(n * mul, totalSamples), mul = Math.max(mul - 1, 2)) {
+		const roundSamples = courses?.length
+			? getTeamTrialSampleCount(n, courseRuns.length)
+			: n;
+		if (roundSamples < totalSamples) {
+			results = runComparisonRound(roundSamples);
+			self.postMessage({ type: 'compare', results });
+		}
 	}
 
 	// Final run with full sample count
-	results = engine.runComparison(nsamples, course, racedef, engine.horse(uma1_), engine.horse(uma2_), arg6, compareOptions);
+	results = runComparisonRound(totalSamples);
 	self.postMessage({ type: 'compare', results });
 	self.postMessage({ type: 'compare-complete' });
 
 	const elapsed = performance.now() - startTime;
-	const runsPerSec = (nsamples / elapsed) * 1000;
-	console.log(`[V2 RaceSimulator] Completed ${nsamples} runs in ${elapsed.toFixed(2)}ms (${runsPerSec.toFixed(0)} runs/sec)`);
+	const runsPerSec = (totalSamples / elapsed) * 1000;
+	console.log(`[V2 RaceSimulator] Completed ${totalSamples} runs in ${elapsed.toFixed(2)}ms (${runsPerSec.toFixed(0)} runs/sec)`);
 }
 
 /**
