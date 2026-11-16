@@ -1,6 +1,53 @@
 import test from 'tape';
-import { addImplicitZeroHintSkills, calculateOwnedSkillCost, calculateSkillCost, getSkillsForChartList, isSkillHiddenByOwned, skillGroups } from './skill-chart-utils';
+import { addImplicitZeroHintSkills, calculateOwnedSkillCost, calculateSkillCost, filterChartSkillsByVisibility, getActivateableSkills, getSkillsForChartList, isSkillHiddenByOwned, skillGroups } from './skill-chart-utils';
 import skillmeta from '../../skill_meta.json';
+import courseData from '../course_data.json';
+import type { CourseData } from '../../uma-skill-tools/CourseData';
+import { buildRaceParameters } from './simulation-utils';
+import { defaultUmaState } from './uma-panel';
+
+test('chart visibility filters exclude hidden skills before simulation', t => {
+	const ids = ['200011', '200142', '200013', '106701211'];
+	const ownedGroup = skillmeta['200142']?.groupId;
+	t.ok(ownedGroup, 'owned skill has a group');
+	const hidden = filterChartSkillsByVisibility(ids, {
+		hideOwned: true,
+		hidePurple: true,
+		hideNotInGame: true,
+		ownedSkills: new Map(ownedGroup ? [[ownedGroup, '200142']] : []),
+		hiddenSkills: new Set(['200011']),
+	});
+
+	t.deepEqual(hidden, [], 'manual, owned, purple, and unreleased hidden skills are all excluded');
+	t.deepEqual(filterChartSkillsByVisibility(ids, {
+		hideOwned: false,
+		hidePurple: false,
+		hideNotInGame: false,
+		ownedSkills: new Map(),
+		hiddenSkills: new Set(),
+	}), ids, 'disabling filters preserves the selected skill list');
+	t.end();
+});
+
+test('course activation filtering excludes running-style and distance-incompatible skills', t => {
+	const course = courseData['10102'] as unknown as CourseData;
+	const nigeOnlySkill = getActivateableSkills(
+		['200531'],
+		{ ...defaultUmaState, strategy: 'Senkou' },
+		course,
+		buildRaceParameters(1, 1, 1, 1, 'Senkou'),
+	);
+	const sprintOnlySkill = getActivateableSkills(
+		['200651'],
+		defaultUmaState,
+		course,
+		buildRaceParameters(1, 1, 1, 1, defaultUmaState.strategy),
+	);
+
+	t.deepEqual(nigeOnlySkill, [], 'skills requiring a different running style are excluded');
+	t.deepEqual(sprintOnlySkill, [], 'skills requiring a different distance category are excluded');
+	t.end();
+});
 
 test('skill list modes select imported hints, inherited skills, and saved custom skills', t => {
 	const hintSkills = getSkillsForChartList('hints', new Map([['200011', 2], ['200142', 0]]), [], false);

@@ -20,6 +20,33 @@ import globalUmas from '../umas.json';
 import notInGame from '../not-in-game.json';
 import type { SavedSkillList } from './skill-lists';
 
+const notInGameSkillSet = new Set(notInGame.skills);
+
+export interface ChartSkillVisibilityFilters {
+	hideOwned: boolean;
+	hidePurple: boolean;
+	hideNotInGame: boolean;
+	ownedSkills: ReadonlyMap<string, string>;
+	hiddenSkills: ReadonlySet<string>;
+}
+
+export function isSkillHiddenByChartFilters(
+	skillId: string,
+	filters: ChartSkillVisibilityFilters
+): boolean {
+	return filters.hiddenSkills.has(skillId) ||
+		(filters.hideOwned && isSkillHiddenByOwned(skillId, filters.ownedSkills)) ||
+		(filters.hidePurple && isPurpleSkill(skillId)) ||
+		(filters.hideNotInGame && notInGameSkillSet.has(skillId));
+}
+
+export function filterChartSkillsByVisibility(
+	skills: string[],
+	filters: ChartSkillVisibilityFilters
+): string[] {
+	return skills.filter(skillId => !isSkillHiddenByChartFilters(skillId, filters));
+}
+
 /**
  * Check if a skill is a purple (evolved) variant
  */
@@ -55,13 +82,12 @@ export function addImplicitZeroHintSkills(
 	hints: Record<string, number>,
 	outfitId: string
 ): Record<string, number> {
-	const notInGameSkills = new Set(notInGame.skills);
 	const result = Object.fromEntries(
-		Object.entries(hints).filter(([skillId]) => !notInGameSkills.has(skillId))
+		Object.entries(hints).filter(([skillId]) => !notInGameSkillSet.has(skillId))
 	);
 	const addHint = (skillId: string, level: number) => {
 		if (Object.prototype.hasOwnProperty.call(skilldata, skillId) &&
-			!notInGameSkills.has(skillId)) {
+			!notInGameSkillSet.has(skillId)) {
 			result[skillId] = Math.max(result[skillId] ?? 0, level);
 		}
 	};
@@ -106,7 +132,7 @@ export function addImplicitZeroHintSkills(
 	return result;
 }
 
-export function isSkillHiddenByOwned(skillId: string, ownedSkills: Map<string, string>): boolean {
+export function isSkillHiddenByOwned(skillId: string, ownedSkills: ReadonlyMap<string, string>): boolean {
 	const groupId = skillmeta[skillId]?.groupId;
 	return groupId !== undefined && ownedSkills.get(groupId) === skillId;
 }
@@ -318,10 +344,9 @@ export function isGeneralSkill(id: string): boolean {
  * roughly 60% of the previously-tested skills on a typical fast-forward.
  */
 export function getBaseSkillsToTest(uma: UmaState, hideNotInGame: boolean = false): string[] {
-	const notInGameSet = hideNotInGame ? new Set(notInGame.skills) : null;
 	return Object.keys(skilldata).filter(id => {
 		if (!isGeneralSkill(id)) return false;
-		if (notInGameSet && notInGameSet.has(id)) return false;
+		if (hideNotInGame && notInGameSkillSet.has(id)) return false;
 		return true;
 	});
 }
@@ -344,10 +369,9 @@ export function getSkillsForChartList(
 		ids = Object.keys(skilldata).filter(isGeneralSkill);
 	}
 
-	const notInGameSet = hideNotInGame ? new Set(notInGame.skills) : null;
 	return [...new Set(ids)].filter(id =>
 		Object.prototype.hasOwnProperty.call(skilldata, id) &&
-		(!notInGameSet || !notInGameSet.has(id))
+		(!hideNotInGame || !notInGameSkillSet.has(id))
 	);
 }
 
