@@ -16,9 +16,8 @@ import {
 } from '@tanstack/react-table';
 
 import type { SkillChartResult } from './skill-chart-types';
-import { calculateSkillCost, isPurpleSkill, umaForUniqueSkill } from './skill-chart-utils';
+import { calculateSkillCost, isPurpleSkill, isSkillHiddenByOwned, umaForUniqueSkill } from './skill-chart-utils';
 import skillnames from '../skillnames.json';
-import skillmeta from '../../skill_meta.json';
 import umas from '../../umas.json';
 import icons from '../../icons.json';
 import notInGame from '../not-in-game.json';
@@ -173,11 +172,7 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 		let data = props.data;
 
 		if (props.hideOwned) {
-			data = data.filter(row => {
-				const groupId = skillmeta[row.id]?.groupId;
-				if (!groupId) return true;
-				return !props.hasSkills.has(groupId);
-			});
+			data = data.filter(row => !isSkillHiddenByOwned(row.id, props.hasSkills));
 		}
 
 		if (props.hidePurple) {

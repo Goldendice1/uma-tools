@@ -50,6 +50,11 @@ export const skillGroups = Object.keys(skilldata).sort((a, b) =>
 	return groups;
 }, new Map<string, string[]>());
 
+export function isSkillHiddenByOwned(skillId: string, ownedSkills: Map<string, string>): boolean {
+	const groupId = skillmeta[skillId]?.groupId;
+	return groupId !== undefined && ownedSkills.get(groupId) === skillId;
+}
+
 /**
  * Scale base SP cost by hint level
  * Hint levels 1-3: 10% reduction per level

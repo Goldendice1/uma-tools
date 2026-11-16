@@ -1,5 +1,5 @@
 import test from 'tape';
-import { calculateOwnedSkillCost, calculateSkillCost, getSkillsForChartList, skillGroups } from './skill-chart-utils';
+import { calculateOwnedSkillCost, calculateSkillCost, getSkillsForChartList, isSkillHiddenByOwned, skillGroups } from './skill-chart-utils';
 import skillmeta from '../../skill_meta.json';
 
 test('skill list modes select imported hints, inherited skills, and saved custom skills', t => {
@@ -54,5 +54,19 @@ test('owned skill SP total counts prerequisite tiers once', t => {
 	t.equal(calculateOwnedSkillCost([ids[0]]), meta[ids[0]]?.baseCost ?? 0);
 	t.equal(calculateOwnedSkillCost([ids[1]]), expected);
 	t.equal(calculateOwnedSkillCost([ids[0], ids[1]]), expected);
+	t.end();
+});
+
+test('Hide Owned keeps takable skill upgrades visible', t => {
+	const groupId = skillmeta['200142']?.groupId;
+	if (!groupId) {
+		t.fail('Non-Standard Distance ○ has a skill group');
+		t.end();
+		return;
+	}
+	const owned = new Map<string, string>([[groupId, '200142']]);
+
+	t.ok(isSkillHiddenByOwned('200142', owned), 'hides the owned skill');
+	t.notOk(isSkillHiddenByOwned('200141', owned), 'keeps the upgrade available');
 	t.end();
 });
