@@ -1,5 +1,5 @@
 import test from 'tape';
-import { calculateOwnedSkillCost, calculateSkillCost, getSkillsForChartList, isSkillHiddenByOwned, skillGroups } from './skill-chart-utils';
+import { addImplicitZeroHintSkills, calculateOwnedSkillCost, calculateSkillCost, getSkillsForChartList, isSkillHiddenByOwned, skillGroups } from './skill-chart-utils';
 import skillmeta from '../../skill_meta.json';
 
 test('skill list modes select imported hints, inherited skills, and saved custom skills', t => {
@@ -14,6 +14,30 @@ test('skill list modes select imported hints, inherited skills, and saved custom
 		{ id: 'my-list', name: 'My list', skillIds: ['200011', 'unknown'] },
 	], false);
 	t.deepEqual(customSkills, ['200011']);
+	t.end();
+});
+
+test('implicit zero-level hints include prerequisite and Uma awakening skills', t => {
+	const hints = addImplicitZeroHintSkills({
+		'200531': 1,
+		'201662': 1,
+		'202371': 3,
+		'200202': 4,
+	}, '103401');
+
+	for (const skillId of ['200532', '201661', '202372', '100341', '201452', '201611', '201612']) {
+		t.equal(hints[skillId], 0, `${skillId} is included at hint level 0`);
+	}
+	t.equal(hints['200202'], 4, 'an existing hint level is preserved');
+
+	const hintSkills = getSkillsForChartList('hints', new Map(Object.entries(hints)), [], false);
+	t.ok(hintSkills.includes('200532'));
+	t.ok(hintSkills.includes('201661'));
+	t.ok(hintSkills.includes('200202'));
+
+	const otherUmaHints = addImplicitZeroHintSkills({}, '100101');
+	t.equal(otherUmaHints['100011'], 0, 'innate skill is derived for a different Uma');
+	t.equal(otherUmaHints['200512'], 0, 'awakening skills are read from the selected outfit');
 	t.end();
 });
 
