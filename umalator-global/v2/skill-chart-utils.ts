@@ -97,19 +97,28 @@ export function calculateSkillCost(
 }
 
 /**
- * Calculate the base SP cost of all currently owned skills, counting each
- * prerequisite chain only through its highest owned tier.
+ * Calculate the discounted SP cost of owned skills, counting each prerequisite
+ * chain only through its highest owned tier.
  */
-export function calculateOwnedSkillCost(skills: string[]): number {
+export function calculateOwnedSkillCost(
+	skills: string[],
+	hints: ReadonlyMap<string, number> = new Map(),
+	fastLearner: boolean = false
+): number {
 	const selectedByGroup = new Map<string, Set<string>>();
 	let total = 0;
+	const skillCost = (id: string) => scaleBaseCost(
+		skillmeta[id]?.baseCost ?? 0,
+		hints.get(id) ?? 0,
+		fastLearner
+	);
 
 	for (const id of skills) {
 		const meta = skillmeta[id];
 		if (!meta) continue;
 		const groupId = meta.groupId;
 		if (!groupId) {
-			total += meta.baseCost ?? 0;
+			total += skillCost(id);
 			continue;
 		}
 		if (!selectedByGroup.has(groupId)) selectedByGroup.set(groupId, new Set());
@@ -119,7 +128,7 @@ export function calculateOwnedSkillCost(skills: string[]): number {
 	for (const [groupId, selectedInGroup] of selectedByGroup) {
 		const group = skillGroups.get(groupId);
 		if (!group) {
-			for (const id of selectedInGroup) total += skillmeta[id]?.baseCost ?? 0;
+			for (const id of selectedInGroup) total += skillCost(id);
 			continue;
 		}
 		let highestOwnedIndex = -1;
@@ -127,7 +136,7 @@ export function calculateOwnedSkillCost(skills: string[]): number {
 			if (selectedInGroup.has(group[i])) highestOwnedIndex = i;
 		}
 		for (let i = 0; i <= highestOwnedIndex; i++) {
-			total += skillmeta[group[i]]?.baseCost ?? 0;
+			total += skillCost(group[i]);
 		}
 	}
 
