@@ -2,7 +2,7 @@ import test from 'tape';
 import { tryParseImportText } from '../../components/gameExportParser';
 import { validateAndParseUmaJson } from './storage';
 
-test('Umadump import adds prerequisite, innate, and awakening skills at level 0', t => {
+test('Umadump import adds prerequisite and awakening skills at level 0 without unrelated skills', t => {
 	const exported = {
 		single_mode_load_common: {
 			chara_info: {
@@ -26,6 +26,7 @@ test('Umadump import adds prerequisite, innate, and awakening skills at level 0'
 					{ group_id: 20053, rarity: 2, level: 1 },
 					{ group_id: 20166, rarity: 2, level: 1 },
 					{ group_id: 20237, rarity: 2, level: 3 },
+					{ group_id: 20001, rarity: 6, level: 1 },
 				],
 			},
 		},
@@ -39,8 +40,11 @@ test('Umadump import adds prerequisite, innate, and awakening skills at level 0'
 		return;
 	}
 
-	for (const skillId of ['200202', '200532', '201661', '202372', '100341', '201452', '201611', '201612']) {
+	for (const skillId of ['200202', '200532', '201661', '202372', '201452', '201611', '201612']) {
 		t.equal(uma.skillHints[skillId], 0, `${skillId} is available at level 0`);
+	}
+	for (const skillId of ['100341', '106701211', '111901111', '200014']) {
+		t.notOk(Object.prototype.hasOwnProperty.call(uma.skillHints, skillId), `${skillId} is excluded from imported hints`);
 	}
 	t.end();
 });

@@ -17,7 +17,7 @@ test('skill list modes select imported hints, inherited skills, and saved custom
 	t.end();
 });
 
-test('implicit zero-level hints include prerequisite and Uma awakening skills', t => {
+test('implicit zero-level hints include prerequisites and awakenings but not the innate unique skill', t => {
 	const hints = addImplicitZeroHintSkills({
 		'200531': 1,
 		'201662': 1,
@@ -25,19 +25,42 @@ test('implicit zero-level hints include prerequisite and Uma awakening skills', 
 		'200202': 4,
 	}, '103401');
 
-	for (const skillId of ['200532', '201661', '202372', '100341', '201452', '201611', '201612']) {
+	for (const skillId of ['200532', '201661', '202372', '201452', '201611', '201612']) {
 		t.equal(hints[skillId], 0, `${skillId} is included at hint level 0`);
 	}
+	t.notOk(Object.prototype.hasOwnProperty.call(hints, '100341'), 'the selected Uma unique skill is not added as a hint');
 	t.equal(hints['200202'], 4, 'an existing hint level is preserved');
 
 	const hintSkills = getSkillsForChartList('hints', new Map(Object.entries(hints)), [], false);
 	t.ok(hintSkills.includes('200532'));
 	t.ok(hintSkills.includes('201661'));
 	t.ok(hintSkills.includes('200202'));
+	t.notOk(hintSkills.includes('100341'));
 
 	const otherUmaHints = addImplicitZeroHintSkills({}, '100101');
-	t.equal(otherUmaHints['100011'], 0, 'innate skill is derived for a different Uma');
 	t.equal(otherUmaHints['200512'], 0, 'awakening skills are read from the selected outfit');
+	t.notOk(Object.prototype.hasOwnProperty.call(otherUmaHints, '100011'), 'a selected Uma unique skill is not added as a hint');
+	t.end();
+});
+
+test('imported hints discard unreleased skills before inferring prerequisites', t => {
+	const hints = addImplicitZeroHintSkills({
+		'106701211': 1,
+		'111901111': 1,
+	}, '103401');
+
+	for (const skillId of ['106701211', '111901111', '200014']) {
+		t.notOk(Object.prototype.hasOwnProperty.call(hints, skillId), `${skillId} is not added to the available hint list`);
+	}
+	t.end();
+});
+
+test('same-rarity skill continuations inherit the shared hint level', t => {
+	const zeroLevelHints = addImplicitZeroHintSkills({ '201452': 0 }, '');
+	t.equal(zeroLevelHints['201451'], 0, 'End Closer Straightaways ◎ is included at level 0');
+
+	const leveledHints = addImplicitZeroHintSkills({ '201452': 3 }, '');
+	t.equal(leveledHints['201451'], 3, 'End Closer Straightaways ◎ shares the hint level');
 	t.end();
 });
 
