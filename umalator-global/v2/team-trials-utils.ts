@@ -10,6 +10,9 @@ export const TEAM_TRIAL_CATEGORIES: { value: TeamTrialsCategory; label: string }
 	{ value: 'dirt', label: 'Dirt' },
 ];
 
+const LONGCHAMP_TRACK_ID = 10201;
+const JRA_TRACK_IDS = new Set([10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010]);
+
 export interface TeamTrialCourse {
 	id: string;
 	course: CourseData;
@@ -17,19 +20,27 @@ export interface TeamTrialCourse {
 }
 
 export function getTeamTrialCourseIds(
-	courses: Record<string, Pick<CourseData, 'surface' | 'distanceType'>>,
+	courses: Record<string, Pick<CourseData, 'raceTrackId' | 'surface' | 'distanceType'>>,
 	category: TeamTrialsCategory
 ): string[] {
 	if (category === 'dirt') {
 		return Object.entries(courses)
-			.filter(([, course]) => course.surface === 2)
+			.filter(([, course]) =>
+				JRA_TRACK_IDS.has(course.raceTrackId) &&
+				course.surface === 2 &&
+				course.distanceType === 2
+			)
 			.map(([id]) => id)
 			.sort((a, b) => Number(a) - Number(b));
 	}
 
 	const distanceType = { short: 1, mile: 2, medium: 3, long: 4 }[category];
 	return Object.entries(courses)
-		.filter(([, course]) => course.surface === 1 && course.distanceType === distanceType)
+		.filter(([, course]) =>
+			course.raceTrackId !== LONGCHAMP_TRACK_ID &&
+			course.surface === 1 &&
+			course.distanceType === distanceType
+		)
 		.map(([id]) => id)
 		.sort((a, b) => Number(a) - Number(b));
 }

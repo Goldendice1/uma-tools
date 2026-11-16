@@ -108,6 +108,11 @@ import "./tour/tour.css";
 // Discord webhook for feedback submissions - configure via VITE_DISCORD_WEBHOOK environment variable
 const DISCORD_FEEDBACK_WEBHOOK = import.meta.env.VITE_DISCORD_WEBHOOK || '';
 
+const TEAM_TRIAL_SELECT_OPTIONS = [
+  { value: "single", label: "Single track" },
+  ...TEAM_TRIAL_CATEGORIES,
+];
+
 // Feedback drawer feature flag. Defaults to enabled. Set VITE_ENABLE_FEEDBACK=false in
 // .env.local (or the build environment) to hide the drawer + floating toggle entirely.
 // Also auto-hides when no webhook URL is configured — submission would fail anyway.
@@ -334,6 +339,13 @@ function App() {
   const [customSkillLists, setCustomSkillLists] = useState(loadSavedSkillLists);
   const [skillListSelection, setSkillListSelection] = useState("all");
   const [teamTrialsCategory, setTeamTrialsCategory] = useState<TeamTrialsCategory | "single">("single");
+  const handleTeamTrialsCategoryChange = useCallback((value: string | number | null) => {
+    if (value === "single" || TEAM_TRIAL_CATEGORIES.some(category => category.value === value)) {
+      setTeamTrialsCategory(value as TeamTrialsCategory | "single");
+      setResults(null);
+      setSkillChartResults(new Map());
+    }
+  }, []);
   const [matchSkillConditions, setMatchSkillConditions] = useState(false);
   const [hiddenSkills, setHiddenSkills] = useState<Set<string>>(new Set());
   const [hideNotInGame, setHideNotInGame] = useState(() => {
@@ -468,9 +480,9 @@ function App() {
 
   const teamTrialCourses = useMemo(() => {
     if (teamTrialsCategory === "single") return [];
-    const courseTypes: Record<string, Pick<CourseData, "surface" | "distanceType">> = {};
+    const courseTypes: Record<string, Pick<CourseData, "raceTrackId" | "surface" | "distanceType">> = {};
     Object.entries(courseData).forEach(([id, course]) => {
-      courseTypes[id] = { surface: course.surface, distanceType: course.distanceType };
+      courseTypes[id] = { raceTrackId: course.raceTrackId, surface: course.surface, distanceType: course.distanceType };
     });
     return getTeamTrialCourseIds(courseTypes, teamTrialsCategory).map(id => ({
       id,
@@ -478,6 +490,10 @@ function App() {
       racedef: buildRaceParameters(ground, weather, season, time, uma1.strategy),
     }));
   }, [teamTrialsCategory, ground, weather, season, time, uma1.strategy]);
+  const displayCourseId =
+    (mode === "skill" || mode === "compare") && teamTrialsCategory !== "single"
+      ? Number(teamTrialCourses[0]?.id ?? courseId)
+      : courseId;
 
   // Map of groupId -> skillId for owned skills (for "Hide Owned" filter in skill chart)
   const hasSkills = useMemo(() => {
@@ -913,9 +929,18 @@ function App() {
       setIsRunning(true);
       setResults(null);
 
-      const course = courseData[courseId];
+      const racedef = buildRaceParameters(ground, weather, season, time);
+      const courses = teamTrialsCategory === "single"
+        ? undefined
+        : teamTrialCourses.map(item => ({ course: item.course, racedef }));
+      const course = courses?.[0]?.course ?? courseData[courseId];
       if (!course) {
-        console.error("[V2] Course not found:", courseId);
+        console.error(
+          teamTrialsCategory === "single"
+            ? "[V2] Course not found:"
+            : "[V2] No courses found for Team Trials category:",
+          teamTrialsCategory === "single" ? courseId : teamTrialsCategory,
+        );
         setIsRunning(false);
         return;
       }
@@ -926,7 +951,8 @@ function App() {
         data: {
           nsamples: samples,
           course,
-          racedef: buildRaceParameters(ground, weather, season, time),
+          racedef,
+          courses,
           uma1: convertUmaStateForWorker(uma1),
           uma2: convertUmaStateForWorker(uma2),
           pacer: getDefaultPacer(),
@@ -1004,6 +1030,8 @@ function App() {
     engine,
     autoSeed,
     handleRunSkillChart,
+    teamTrialsCategory,
+    teamTrialCourses,
   ]);
 
   // Get current snapshot based on displayRun selection
@@ -1383,14 +1411,14 @@ function App() {
                   ]}
                   className="v2-preset-select"
                 />
-                {mode === "skill" && teamTrialsCategory !== "single" ? (
+                {(mode === "skill" || mode === "compare") && teamTrialsCategory !== "single" ? (
                   <div class="v2-team-trials-selection">
                     Team Trials · {TEAM_TRIAL_CATEGORIES.find(item => item.value === teamTrialsCategory)?.label}
-                    <span>{teamTrialCourses.length} tracks</span>
+                    <span>{teamTrialCourses.length} tracks · details show first track</span>
                   </div>
                 ) : (
                   <V2TrackSelect
-                    courseid={courseId}
+                    courseid={displayCourseId}
                     setCourseid={(id) => {
                       setSelectedPresetId(null);
                       setCourseId(id);
@@ -1690,7 +1718,7 @@ function App() {
                       <VelocityOverlay
                         data={mode === "skill" ? skillChartSnapshot : mode === "stamina" ? staminaSnapshot : currentSnapshot}
                         courseDistance={
-                          (courseData as any)[courseId]?.distance ?? 2000
+                          (courseData as any)[displayCourseId]?.distance ?? 2000
                         }
                         width={960}
                         height={250}
@@ -1761,16 +1789,8 @@ function App() {
                         <span>Race set</span>
                         <CustomSelect
                           value={teamTrialsCategory}
-                          onChange={(value) => {
-                            if (value === "single" ||
-                                TEAM_TRIAL_CATEGORIES.some(category => category.value === value)) {
-                              setTeamTrialsCategory(value as TeamTrialsCategory | "single");
-                            }
-                          }}
-                          options={[
-                            { value: "single", label: "Single track" },
-                            ...TEAM_TRIAL_CATEGORIES,
-                          ]}
+                          onChange={handleTeamTrialsCategoryChange}
+                          options={TEAM_TRIAL_SELECT_OPTIONS}
                           className="v2-skill-list-select"
                         />
                         <label class="v2-switch" title="Match each skill's required season, weather, or track condition and weight its mean. Season: Spring 40%, Summer 22%, Fall 12%, Winter 26%. Weather: Sunny 58%, Cloudy 30%, Rainy 11%, Snowy 1%. Track condition: Firm 77%, Good 11%, Soft 7%, Heavy 5%. Turf and Dirt depend on the selected track.">
@@ -2022,14 +2042,26 @@ function App() {
                   </div>
                 ) : (
                   /* RESULTS - Compare mode */
-                  <V2ResultsPane
-                    results={results}
-                    isRunning={isRunning}
-                    courseId={courseId}
-                    onRunSimulation={handleRunSimulation}
-                    displayRun={displayRun}
-                    onDisplayRunChange={setDisplayRun}
-                  />
+                  <Fragment>
+                    <div class="v2-skill-list-controls">
+                      <span>Race set</span>
+                      <CustomSelect
+                        value={teamTrialsCategory}
+                        onChange={handleTeamTrialsCategoryChange}
+                        options={TEAM_TRIAL_SELECT_OPTIONS}
+                        className="v2-skill-list-select"
+                        disabled={isRunning}
+                      />
+                    </div>
+                    <V2ResultsPane
+                      results={results}
+                      isRunning={isRunning}
+                      courseId={displayCourseId}
+                      onRunSimulation={handleRunSimulation}
+                      displayRun={displayRun}
+                      onDisplayRunChange={setDisplayRun}
+                    />
+                  </Fragment>
                 )}
               </main>
 
@@ -2113,7 +2145,7 @@ function App() {
                       title={mode === "compare" ? "Umamusume 1" : "Umamusume"}
                       courseDistance={
                         (courseData as Record<string, { distance: number }>)[
-                          courseId
+                          displayCourseId
                         ]?.distance
                       }
                       hideNotInGame={hideNotInGame}
@@ -2131,7 +2163,7 @@ function App() {
                       title="Umamusume 2"
                       courseDistance={
                         (courseData as Record<string, { distance: number }>)[
-                          courseId
+                          displayCourseId
                         ]?.distance
                       }
                       hideNotInGame={hideNotInGame}
@@ -2155,7 +2187,7 @@ function App() {
                       onLoadToUma1={(s) => { handleUma1Load(s); setActiveUmaTab(1); }}
                       onLoadToUma2={(s) => { handleUma2Load(s); setActiveUmaTab(2); }}
                       currentMode={mode}
-                      course={courseData[courseId]}
+                      course={courseData[displayCourseId]}
                     />
                   )}
                 </div>
@@ -2192,7 +2224,7 @@ function App() {
                   <RaceSummary
                     medianrun={results.runData.medianrun}
                     courseDistance={
-                      (courseData as any)[courseId]?.distance ?? 2000
+                      (courseData as any)[displayCourseId]?.distance ?? 2000
                     }
                     skillnames={skillnames}
                     result={
@@ -2406,14 +2438,26 @@ function App() {
                   <div class="v2-mobile-settings-content">
                     <div class="v2-mobile-settings-section">
                       <h4>Track & Course</h4>
-                      {mode === "skill" && teamTrialsCategory !== "single" ? (
+                      {mode === "compare" && (
+                        <div class="v2-skill-list-controls">
+                          <span>Race set</span>
+                          <CustomSelect
+                            value={teamTrialsCategory}
+                            onChange={handleTeamTrialsCategoryChange}
+                            options={TEAM_TRIAL_SELECT_OPTIONS}
+                            className="v2-skill-list-select"
+                            disabled={isRunning}
+                          />
+                        </div>
+                      )}
+                      {(mode === "skill" || mode === "compare") && teamTrialsCategory !== "single" ? (
                         <div class="v2-team-trials-selection">
                           Team Trials · {TEAM_TRIAL_CATEGORIES.find(item => item.value === teamTrialsCategory)?.label}
-                          <span>{teamTrialCourses.length} tracks</span>
+                          <span>{teamTrialCourses.length} tracks · details show first track</span>
                         </div>
                       ) : (
                         <V2TrackSelect
-                          courseid={courseId}
+                          courseid={displayCourseId}
                           setCourseid={(id) => {
                             setSelectedPresetId(null);
                             setCourseId(id);

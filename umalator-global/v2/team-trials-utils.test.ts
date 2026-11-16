@@ -15,14 +15,26 @@ test('Team Trials uses Global Sprint terminology for short-distance courses', t 
 
 test('Team Trials selects the matching surface and distance category', t => {
 	const courses = {
-		'10103': { surface: 1 as const, distanceType: 1 as const },
-		'10101': { surface: 1 as const, distanceType: 1 as const },
-		'10201': { surface: 2 as const, distanceType: 1 as const },
-		'10301': { surface: 2 as const, distanceType: 2 as const },
+		'10101': { raceTrackId: 10001, surface: 1 as const, distanceType: 1 as const },
+		'10201': { raceTrackId: 10002, surface: 1 as const, distanceType: 2 as const },
+		'10301': { raceTrackId: 10003, surface: 1 as const, distanceType: 3 as const },
+		'10401': { raceTrackId: 10004, surface: 1 as const, distanceType: 4 as const },
+		'11203': { raceTrackId: 10201, surface: 1 as const, distanceType: 3 as const },
+		'20101': { raceTrackId: 10001, surface: 2 as const, distanceType: 1 as const },
+		'20201': { raceTrackId: 10002, surface: 2 as const, distanceType: 2 as const },
+		'20301': { raceTrackId: 10003, surface: 2 as const, distanceType: 3 as const },
+		'20401': { raceTrackId: 10004, surface: 2 as const, distanceType: 4 as const },
+		'11102': { raceTrackId: 10101, surface: 2 as const, distanceType: 2 as const },
+		'11302': { raceTrackId: 10103, surface: 2 as const, distanceType: 2 as const },
+		'11402': { raceTrackId: 10104, surface: 2 as const, distanceType: 2 as const },
+		'11502': { raceTrackId: 10105, surface: 2 as const, distanceType: 2 as const },
 	};
 
-	t.deepEqual(getTeamTrialCourseIds(courses, 'short'), ['10101', '10103']);
-	t.deepEqual(getTeamTrialCourseIds(courses, 'dirt'), ['10201', '10301']);
+	t.deepEqual(getTeamTrialCourseIds(courses, 'short'), ['10101']);
+	t.deepEqual(getTeamTrialCourseIds(courses, 'mile'), ['10201']);
+	t.deepEqual(getTeamTrialCourseIds(courses, 'medium'), ['10301']);
+	t.deepEqual(getTeamTrialCourseIds(courses, 'long'), ['10401']);
+	t.deepEqual(getTeamTrialCourseIds(courses, 'dirt'), ['20201']);
 	t.end();
 });
 
