@@ -1,6 +1,7 @@
 import test from 'tape';
 import {
 	applyConditionProbability,
+	getViableSkillConditionMatches,
 	getSkillConditionMatches,
 	getTeamTrialCourseIds,
 	getTeamTrialSampleCount,
@@ -51,9 +52,102 @@ test('condition-matched skill data records overrides and occurrence probability'
 		{ groundCondition: 3 },
 		{ groundCondition: 4 },
 	]);
-	t.deepEqual(matches.multipleQualities.variants.map(item => item.probability), [0.11, 0.07, 0.05]);
+	const combined = getViableSkillConditionMatches(
+		['multipleQualities'],
+		matches,
+		() => true,
+	);
+	t.deepEqual(combined.conditions.multipleQualities.variants.map(item => item.overrides), [
+		{ groundCondition: 2 },
+	]);
+	t.ok(Math.abs(combined.conditions.multipleQualities.variants[0].probability - 0.23) < 1e-12);
 	t.notOk(matches.surfaceOnly, 'surface conditions are not treated as random variants');
 	t.notOk(matches.unconditional);
+	t.end();
+});
+
+test('precondition branches are tested independently and equivalent branches combine', t => {
+	const matches = getSkillConditionMatches({
+		wet: {
+			alternatives: [{
+				condition: 'weather==3',
+				precondition: 'ground_condition==3@ground_condition==4',
+			}],
+		},
+		firmOrWetEffects: {
+			alternatives: [
+				{ condition: 'phase==2', precondition: 'ground_condition==2@ground_condition==3@ground_condition==4' },
+				{ condition: 'phase==2', precondition: 'ground_condition==1' },
+			],
+		},
+		partial: {
+			alternatives: [{ condition: 'phase==2', precondition: 'ground_condition==2@ground_condition==3' }],
+		},
+	});
+
+	t.deepEqual(matches.wet.variants.map(item => item.overrides), [
+		{ weather: 3, groundCondition: 3 },
+		{ weather: 3, groundCondition: 4 },
+	]);
+	const viable = getViableSkillConditionMatches(
+		['wet', 'firmOrWetEffects', 'partial'],
+		matches,
+		(id, overrides) => id !== 'partial' || overrides.groundCondition === 3,
+	);
+	t.deepEqual(viable.conditions.wet.variants.map(item => item.overrides), [
+		{ weather: 3, groundCondition: 3 },
+	]);
+	t.ok(Math.abs(viable.conditions.wet.variants[0].probability - 0.0132) < 1e-12);
+	t.deepEqual(viable.conditions.firmOrWetEffects.variants.map(item => item.overrides), [
+		{ groundCondition: 2 },
+		{ groundCondition: 1 },
+	]);
+	t.ok(Math.abs(viable.conditions.firmOrWetEffects.variants[0].probability - 0.23) < 1e-12);
+	t.ok(Math.abs(viable.conditions.firmOrWetEffects.variants[1].probability - 0.77) < 1e-12);
+	t.deepEqual(viable.conditions.partial.variants.map(item => item.overrides), [
+		{ groundCondition: 3 },
+	]);
+	t.ok(Math.abs(viable.conditions.partial.variants[0].probability - 0.07) < 1e-12);
+	t.end();
+});
+
+test('equivalent OR requirements combine across condition types', t => {
+	const matches = getSkillConditionMatches({
+		seasonAndWeather: {
+			alternatives: [{
+				condition: 'weather==2@weather==3',
+				precondition: 'season==1@season==4',
+			}],
+		},
+	});
+	const viable = getViableSkillConditionMatches(
+		['seasonAndWeather'],
+		matches,
+		() => true,
+	);
+
+	t.equal(viable.conditions.seasonAndWeather.variants.length, 1);
+	t.deepEqual(viable.conditions.seasonAndWeather.variants[0].overrides, {
+		season: 1,
+		weather: 2,
+	});
+	t.ok(Math.abs(viable.conditions.seasonAndWeather.variants[0].probability - 0.2706) < 1e-12);
+	t.end();
+});
+
+test('skills without a viable condition test are omitted; unconditioned skills test defaults', t => {
+	const result = getViableSkillConditionMatches(
+		['available', 'unavailable', 'unconditioned'],
+		{
+			available: { variants: [{ overrides: { season: 2 }, probability: 0.22, alternativeIndex: 0 }] },
+			unavailable: { variants: [] },
+		},
+		(id, overrides) => id !== 'unavailable' && (id !== 'available' || overrides.season === 2),
+	);
+
+	t.deepEqual(result.skills, ['available', 'unconditioned']);
+	t.deepEqual(result.conditions.available.variants.map(item => item.overrides), [{ season: 2 }]);
+	t.notOk(result.conditions.unconditioned);
 	t.end();
 });
 

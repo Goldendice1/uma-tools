@@ -34,6 +34,7 @@ import {
 import { loadSavedSkillLists, saveSkillLists } from "./skill-lists";
 import { SkillListManager } from "./skill-list-manager";
 import {
+  getViableSkillConditionMatches,
   getSkillConditionMatches,
   getTeamTrialCourseIds,
   TEAM_TRIAL_CATEGORIES,
@@ -363,7 +364,7 @@ function App() {
 
   const skillConditionMatches = useMemo(
     () => matchSkillConditions
-      ? getSkillConditionMatches(skilldata as Record<string, { alternatives?: { condition?: string }[] }>)
+      ? getSkillConditionMatches(skilldata as Record<string, { alternatives?: { condition?: string; precondition?: string }[] }>)
       : undefined,
     [matchSkillConditions],
   );
@@ -818,26 +819,20 @@ function App() {
       customSkillLists,
       hideNotInGame,
     );
-    const conditionGroups = new Map<string, { skills: string[]; condition?: NonNullable<typeof skillConditionMatches>[string] }>();
-    baseSkills.forEach(id => {
-      const condition = skillConditionMatches?.[id];
-      const key = JSON.stringify(condition?.variants.map(variant => variant.overrides) ?? []);
-      const group = conditionGroups.get(key) ?? { skills: [], condition };
-      group.skills.push(id);
-      conditionGroups.set(key, group);
-    });
-    const activateableSkillSet = new Set<string>();
-    conditionGroups.forEach(group => {
-      const variants = group.condition?.variants ?? [{ overrides: {} }];
-      variants.forEach(variant => {
-        courses.forEach(item => {
-          const matchedRace = { ...item.racedef, ...variant.overrides };
-          getActivateableSkills(group.skills, uma1, item.course, matchedRace)
-            .forEach(id => activateableSkillSet.add(id));
+    const activateableByTest = new Map<string, Set<string>>();
+    const { skills: activateableSkills, conditions: viableSkillConditions } =
+      getViableSkillConditionMatches(baseSkills, skillConditionMatches, (id, overrides) => {
+        return courses.some(item => {
+          const key = JSON.stringify([item.id, overrides]);
+          let activateable = activateableByTest.get(key);
+          if (!activateable) {
+            const matchedRace = { ...item.racedef, ...overrides };
+            activateable = new Set(getActivateableSkills(baseSkills, uma1, item.course, matchedRace));
+            activateableByTest.set(key, activateable);
+          }
+          return activateable.has(id);
         });
       });
-    });
-    const activateableSkills = [...activateableSkillSet];
 
     if (activateableSkills.length === 0) {
       console.warn("[V2] No activateable skills found for this course");
@@ -877,7 +872,7 @@ function App() {
               racedef: courses[0].racedef,
               courses: teamTrialsCategory === "single" ? undefined : courses,
               targetSamples: chartFastMode ? 50 : samples,
-              skillConditions: skillConditionMatches,
+              skillConditions: viableSkillConditions,
               uma: convertUmaStateForWorker(uma1),
               pacer: getDefaultPacer(),
               options: chartOptions,
