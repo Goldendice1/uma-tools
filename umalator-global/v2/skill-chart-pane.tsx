@@ -322,16 +322,30 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 	const root = useRef<HTMLDivElement>(null);
 	const inView = useRef(new Map<string, boolean>());
 	const [, forceRerender] = useState(false);
-	const obs = useMemo(() => {
-		return new IntersectionObserver((entries) => {
-			entries.forEach(entry => inView.current.set((entry.target as HTMLElement).dataset.skillid!, entry.isIntersecting));
-			forceRerender({} as any);
+	useEffect(() => {
+		const rootElement = root.current;
+		if (!rootElement) return;
+
+		const observer = new IntersectionObserver((entries) => {
+			let changed = false;
+			entries.forEach(entry => {
+				const id = (entry.target as HTMLElement).dataset.skillid;
+				if (!id) return;
+				const isIntersecting = entry.isIntersecting;
+				if ((inView.current.get(id) ?? false) !== isIntersecting) {
+					inView.current.set(id, isIntersecting);
+					changed = true;
+				}
+			});
+			if (changed) forceRerender(value => !value);
 		}, {
-			root: root.current,
+			root: rootElement,
 			rootMargin: "68px 0px 68px 0px"
 		});
-	}, [props.data]);
-	useEffect(() => () => obs.disconnect(), [props.data]);
+		rootElement.querySelectorAll<HTMLTableRowElement>('tbody tr[data-skillid]')
+			.forEach(row => observer.observe(row));
+		return () => observer.disconnect();
+	}, [filteredData]);
 
 	return (
 		<div class={`v2-skill-chart-wrapper${props.dirty ? ' dirty' : ''}`} ref={root}>
@@ -377,7 +391,7 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 								</tr>
 							);
 						} else {
-							return <tr key={row.id} data-skillid={id} ref={el => el && obs.observe(el)}>{((skillnames as any)[id]?.slice(-1)[0]) ?? id}</tr>;
+							return <tr key={row.id} data-skillid={id}>{((skillnames as any)[id]?.slice(-1)[0]) ?? id}</tr>;
 						}
 					})}
 				</tbody>
