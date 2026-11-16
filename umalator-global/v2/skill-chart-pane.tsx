@@ -16,12 +16,11 @@ import {
 } from '@tanstack/react-table';
 
 import type { SkillChartResult } from './skill-chart-types';
-import { calculateSkillCost, isPurpleSkill, isSkillHiddenByOwned, umaForUniqueSkill } from './skill-chart-utils';
+import { calculateSkillCost, isSkillHiddenByChartFilters, umaForUniqueSkill } from './skill-chart-utils';
 import skillnames from '../skillnames.json';
 import skillmeta from '../../skill_meta.json';
 import umas from '../../umas.json';
 import icons from '../../icons.json';
-import notInGame from '../not-in-game.json';
 
 interface SkillChartPaneProps {
 	data: SkillChartResult[];
@@ -168,28 +167,15 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 		props.onRunTypeChange(type + 'run');
 	}
 
-	// Filter data based on hideOwned and hidePurple
 	const filteredData = useMemo(() => {
-		let data = props.data;
-
-		if (props.hideOwned) {
-			data = data.filter(row => !isSkillHiddenByOwned(row.id, props.hasSkills));
-		}
-
-		if (props.hidePurple) {
-			data = data.filter(row => !isPurpleSkill(row.id));
-		}
-
-		if (props.hideNotInGame && notInGame.skills.length > 0) {
-			const notInGameSet = new Set(notInGame.skills);
-			data = data.filter(row => !notInGameSet.has(row.id));
-		}
-
-		if (props.hiddenSkills.size > 0) {
-			data = data.filter(row => !props.hiddenSkills.has(row.id));
-		}
-
-		return data;
+		const filters = {
+			hideOwned: props.hideOwned,
+			hidePurple: props.hidePurple,
+			hideNotInGame: props.hideNotInGame,
+			ownedSkills: props.hasSkills,
+			hiddenSkills: props.hiddenSkills,
+		};
+		return props.data.filter(row => !isSkillHiddenByChartFilters(row.id, filters));
 	}, [props.data, props.hideOwned, props.hidePurple, props.hideNotInGame, props.hasSkills, props.hiddenSkills]);
 
 	const columns: ColumnDef<SkillChartResult, any>[] = useMemo(() => [{

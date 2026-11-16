@@ -28,6 +28,7 @@ import {
 // Skill chart utilities
 import {
   calculateOwnedSkillCost,
+  filterChartSkillsByVisibility,
   getActivateableSkills,
   getSkillsForChartList,
 } from "./skill-chart-utils";
@@ -824,15 +825,19 @@ function App() {
       return;
     }
 
-    // Get list of skills to test (filter to activateable skills only).
-    // Pre-filter not-in-game skills here so we don't waste sim time on skills
-    // that would be hidden from the chart display anyway.
-    const baseSkills = getSkillsForChartList(
+    // Exclude skills hidden by chart filters before doing activation checks or simulations.
+    const baseSkills = filterChartSkillsByVisibility(getSkillsForChartList(
       skillListSelection,
       skillHints,
       customSkillLists,
       hideNotInGame,
-    );
+    ), {
+      hideOwned,
+      hidePurple,
+      hideNotInGame,
+      ownedSkills: hasSkills,
+      hiddenSkills,
+    });
     const activateableByTest = new Map<string, Set<string>>();
     const { skills: activateableSkills, conditions: viableSkillConditions } =
       getViableSkillConditionMatches(baseSkills, skillConditionMatches, (id, overrides) => {
@@ -911,7 +916,11 @@ function App() {
     skillListSelection,
     skillHints,
     customSkillLists,
+    hideOwned,
+    hidePurple,
     hideNotInGame,
+    hiddenSkills,
+    hasSkills,
     teamTrialsCategory,
     teamTrialCourses,
     samples,
