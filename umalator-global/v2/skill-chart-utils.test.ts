@@ -3,8 +3,8 @@ import { calculateOwnedSkillCost, calculateSkillCost, getSkillsForChartList, isS
 import skillmeta from '../../skill_meta.json';
 
 test('skill list modes select imported hints, inherited skills, and saved custom skills', t => {
-	const hintSkills = getSkillsForChartList('hints', new Map([['200011', 2]]), [], false);
-	t.deepEqual(hintSkills, ['200011']);
+	const hintSkills = getSkillsForChartList('hints', new Map([['200011', 2], ['200142', 0]]), [], false);
+	t.deepEqual(hintSkills, ['200011', '200142']);
 
 	const inheritedSkills = getSkillsForChartList('inherited', new Map(), [], false);
 	t.ok(inheritedSkills.length > 0);

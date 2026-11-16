@@ -272,7 +272,7 @@ export function SkillChartPane(props: SkillChartPaneProps) {
 		sortDescFirst: true
 	}], [selectedType, props.showUmaIcons, props.hints, props.fastLearner, props.hasSkills, radioGroup, props.onHideSkill]);
 
-	const [sorting, setSorting] = useState<SortingState>([{ id: 'median', desc: true }]);
+	const [sorting, setSorting] = useState<SortingState>([{ id: 'bsp', desc: true }]);
 
 	const table = useReactTable({
 		columns,

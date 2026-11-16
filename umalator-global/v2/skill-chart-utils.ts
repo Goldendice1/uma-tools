@@ -280,7 +280,7 @@ export function getSkillsForChartList(
 	if (selection === 'inherited') {
 		ids = Object.keys(skilldata).filter(id => id[0] === '9');
 	} else if (selection === 'hints') {
-		ids = Array.from(hints).filter(([, level]) => level > 0).map(([id]) => id);
+		ids = Array.from(hints.keys());
 	} else if (selection.startsWith('custom:')) {
 		const list = customLists.find(item => `custom:${item.id}` === selection);
 		ids = list?.skillIds ?? [];

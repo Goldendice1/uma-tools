@@ -370,7 +370,7 @@ function App() {
   const skillListOptions = useMemo(() => [
     { value: "all", label: "All general skills" },
     { value: "inherited", label: "All inherited skills" },
-    { value: "hints", label: `Available hints (${[...skillHints.values()].filter(level => level > 0).length})` },
+    { value: "hints", label: `Available hints (${skillHints.size})` },
     ...customSkillLists.map(list => ({ value: `custom:${list.id}`, label: list.name })),
   ], [customSkillLists, skillHints]);
 
@@ -709,14 +709,12 @@ function App() {
     const level = Math.max(0, Math.min(5, Math.floor(hint)));
     setSkillHints((previous) => {
       const next = new Map(previous);
-      if (level > 0) next.set(id, level);
-      else next.delete(id);
+      next.set(id, level);
       return next;
     });
     setUma1((previous) => {
       const next = { ...(previous.skillHints ?? {}) };
-      if (level > 0) next[id] = level;
-      else delete next[id];
+      next[id] = level;
       return { ...previous, skillHints: next };
     });
   }, []);
@@ -1604,10 +1602,7 @@ function App() {
                           samples,
                           uma1,
                           uma2,
-                          // Only persist non-zero hint levels to keep the link compact.
-                          skillHints: Object.fromEntries(
-                            [...skillHints].filter(([, v]) => v > 0),
-                          ),
+                          skillHints: Object.fromEntries(skillHints),
                         });
                       },
                     },

@@ -28,6 +28,7 @@ const umadump = {
 				{ group_id: 20001, rarity: 1, level: 4 },
 				{ group_id: 20002, rarity: 2, level: 3 },
 				{ group_id: 20001, rarity: 2, level: 5 },
+				{ group_id: 20003, rarity: 1, level: 0 },
 			],
 		},
 	},
@@ -45,17 +46,20 @@ test('Umadump import reads the wrapped trainee and career data', t => {
 		{ group_id: 20001, rarity: 1, level: 4 },
 		{ group_id: 20002, rarity: 2, level: 3 },
 		{ group_id: 20001, rarity: 2, level: 5 },
+		{ group_id: 20003, rarity: 1, level: 0 },
 	]);
 
 	const hints = skillHintsFromTips(parsed.skillTips, {
 		whiteA: { rarity: 1 },
 		whiteB: { rarity: 1 },
 		gold: { rarity: 2 },
+		zeroHint: { rarity: 1 },
 	}, {
 		whiteA: { groupId: '20001' },
 		whiteB: { groupId: '20001' },
 		gold: { groupId: '20002' },
+		zeroHint: { groupId: '20003' },
 	});
-	t.deepEqual(hints, { whiteA: 4, whiteB: 4, gold: 3 });
+	t.deepEqual(hints, { whiteA: 4, whiteB: 4, gold: 3, zeroHint: 0 });
 	t.end();
 });

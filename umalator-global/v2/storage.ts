@@ -20,10 +20,9 @@ function parseSkillHints(value: unknown): Record<string, number> {
 
 	const hints: Record<string, number> = {};
 	for (const [id, rawLevel] of Object.entries(value)) {
-		const level = typeof rawLevel === 'number' && Number.isFinite(rawLevel)
-			? Math.max(0, Math.min(5, Math.floor(rawLevel)))
-			: 0;
-		if (level > 0 && (skilldata as Record<string, any>)[id]) hints[id] = level;
+		if (typeof rawLevel !== 'number' || !Number.isFinite(rawLevel)) continue;
+		const level = Math.max(0, Math.min(5, Math.floor(rawLevel)));
+		if ((skilldata as Record<string, any>)[id]) hints[id] = level;
 	}
 	return hints;
 }
@@ -667,7 +666,7 @@ export interface ShareableState {
 	samples: number;
 	uma1: UmaState;
 	uma2: UmaState;
-	skillHints?: Record<string, number>;  // skill id → hint level; only non-zero saved. Optional for backward compat with older links.
+	skillHints?: Record<string, number>;  // Skill id → hint level, including imported level-0 entries.
 }
 
 /**
