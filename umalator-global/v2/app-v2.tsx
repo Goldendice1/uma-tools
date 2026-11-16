@@ -1877,7 +1877,11 @@ function App() {
                       </div>
                       <div class="v2-skill-chart-actions">
                         {uma1.remainingSP !== undefined && (() => {
-                          const usedSP = calculateOwnedSkillCost(uma1.skills);
+                          const usedSP = calculateOwnedSkillCost(
+                            uma1.skills,
+                            skillHints,
+                            uma1.fastLearner,
+                          );
                           const difference = uma1.remainingSP - usedSP;
                           const badgeColor = difference > 0
                             ? "success"

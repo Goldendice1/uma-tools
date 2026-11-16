@@ -57,6 +57,16 @@ test('owned skill SP total counts prerequisite tiers once', t => {
 	t.end();
 });
 
+test('owned skill SP total applies hint and Fast Learner discounts', t => {
+	const skillId = '200142';
+	const baseCost = (skillmeta as Record<string, { baseCost?: number }>)[skillId]?.baseCost ?? 0;
+	const hints = new Map([[skillId, 3]]);
+
+	t.equal(calculateOwnedSkillCost([skillId], hints), Math.floor(baseCost * 0.7));
+	t.equal(calculateOwnedSkillCost([skillId], hints, true), Math.floor(baseCost * 0.7 * 0.9));
+	t.end();
+});
+
 test('Hide Owned keeps takable skill upgrades visible', t => {
 	const groupId = skillmeta['200142']?.groupId;
 	if (!groupId) {

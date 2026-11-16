@@ -902,7 +902,11 @@ export function V2UmaPanel({ state, onChange, onLoad, onReset, onResetAll, title
 
 			{/* Skills */}
 			<CollapsibleSection title="Skills" badge={(() => {
-				const total = calculateOwnedSkillCost(state.skills);
+				const total = calculateOwnedSkillCost(
+					state.skills,
+					new Map(Object.entries(state.skillHints ?? {})),
+					state.fastLearner,
+				);
 				return `${state.skills.length} · ${total.toLocaleString()} SP`;
 			})()} defaultOpen={true} headerAction={
 				<span
