@@ -11,6 +11,7 @@ import umas from '../umas.json'; // Use global version for English names
 import skilldata from '../skill_data.json'; // Use Global version
 import skillmeta from '../../skill_meta.json';
 import { skillHintsFromTips, tryParseImportText } from '../../components/gameExportParser';
+import { addImplicitZeroHintSkills } from './skill-chart-utils';
 
 // LocalStorage keys
 const HORSE_SLOTS_KEY = 'umalator_v2_horse_slots';
@@ -77,13 +78,17 @@ export function validateAndParseUmaJson(json: any): UmaState | null {
 	});
 
 	const validHints = parseSkillHints(json.skillHints);
-	const skillHints = Object.keys(validHints).length > 0
+	const importedHints = Object.keys(validHints).length > 0
 		? validHints
 		: skillHintsFromTips(
 			json.skillTips,
 			skilldata as Record<string, { rarity?: number }>,
 			skillmeta as Record<string, { groupId?: string }>
 		);
+	const skillHints = addImplicitZeroHintSkills(
+		importedHints,
+		typeof json.outfitId === 'string' ? json.outfitId : ''
+	);
 
 	// Parse forcedSkillPositions - validate it's an object with string values
 	let forcedSkillPositions: Record<string, string> = {};

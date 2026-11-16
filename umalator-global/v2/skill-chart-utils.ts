@@ -16,6 +16,7 @@ import type { SkillChartResult } from './skill-chart-types';
 import skilldata from '../skill_data.json';
 import skillmeta from '../../skill_meta.json';
 import umas from '../../umas.json';
+import globalUmas from '../umas.json';
 import notInGame from '../not-in-game.json';
 import type { SavedSkillList } from './skill-lists';
 
@@ -49,6 +50,49 @@ export const skillGroups = Object.keys(skilldata).sort((a, b) =>
 	}
 	return groups;
 }, new Map<string, string[]>());
+
+export function addImplicitZeroHintSkills(
+	hints: Record<string, number>,
+	outfitId: string
+): Record<string, number> {
+	const result = { ...hints };
+	const addZeroHint = (skillId: string) => {
+		if (Object.prototype.hasOwnProperty.call(skilldata, skillId) &&
+			!Object.prototype.hasOwnProperty.call(result, skillId)) {
+			result[skillId] = 0;
+		}
+	};
+
+	const outfitMatch = /^(\d{4})(\d{2})$/.exec(outfitId);
+	if (outfitMatch) {
+		const characterId = Number(outfitMatch[1]);
+		const outfitNumber = Number(outfitMatch[2]);
+		const uniqueSkillId = String(100001 + (characterId - 1000) * 10 + (outfitNumber - 1) * 10000);
+		addZeroHint(uniqueSkillId);
+
+		type UmaOutfitData = { awakenings?: unknown } | string;
+		type UmaData = { outfits?: Record<string, UmaOutfitData> };
+		const character = (globalUmas as Record<string, UmaData>)[outfitMatch[1]];
+		const outfit = character?.outfits?.[outfitId];
+		if (outfit && typeof outfit === 'object' && Array.isArray(outfit.awakenings)) {
+			for (const skillId of outfit.awakenings) {
+				if (typeof skillId === 'string') addZeroHint(skillId);
+			}
+		}
+	}
+
+	for (const skillId of Object.keys(result)) {
+		const groupId = skillmeta[skillId]?.groupId;
+		const group = groupId ? skillGroups.get(groupId) : undefined;
+		const skillIndex = group?.indexOf(skillId) ?? -1;
+		if (!group || skillIndex <= 0) continue;
+		for (let i = 0; i < skillIndex; i++) {
+			addZeroHint(group[i]);
+		}
+	}
+
+	return result;
+}
 
 export function isSkillHiddenByOwned(skillId: string, ownedSkills: Map<string, string>): boolean {
 	const groupId = skillmeta[skillId]?.groupId;
