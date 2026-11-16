@@ -18,6 +18,7 @@ import {
 import type { SkillChartResult } from './skill-chart-types';
 import { calculateSkillCost, isPurpleSkill, isSkillHiddenByOwned, umaForUniqueSkill } from './skill-chart-utils';
 import skillnames from '../skillnames.json';
+import skillmeta from '../../skill_meta.json';
 import umas from '../../umas.json';
 import icons from '../../icons.json';
 import notInGame from '../not-in-game.json';
