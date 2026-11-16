@@ -52,40 +52,138 @@ export interface SkillConditionMatch {
 			groundCondition?: number;
 		};
 		probability: number;
+		alternativeIndex: number;
 	}[];
 }
 
 // Race-condition weights used to reduce conditional skill averages.
-const CONDITION_PROBABILITIES: Record<string, number[]> = {
+const CONDITION_PROBABILITIES = {
 	season: [0, 0.4, 0.22, 0.12, 0.26],
 	weather: [0, 0.58, 0.3, 0.11, 0.01],
 	ground_condition: [0, 0.77, 0.11, 0.07, 0.05],
-};
+} as const;
+const CONDITION_FIELDS = [
+	{ condition: 'season', override: 'season' },
+	{ condition: 'weather', override: 'weather' },
+	{ condition: 'ground_condition', override: 'groundCondition' },
+] as const;
+type ConditionField = keyof typeof CONDITION_PROBABILITIES;
+type SkillConditionVariant = SkillConditionMatch['variants'][number];
+
+function getVariantKey(overrides: SkillConditionVariant['overrides']): string {
+	return JSON.stringify(overrides);
+}
+
+function mergeEquivalentVariants(variants: SkillConditionVariant[]): SkillConditionVariant[] {
+	let merged = variants;
+	for (const { override: field } of CONDITION_FIELDS) {
+		const groups = new Map<string, SkillConditionVariant[]>();
+		for (const variant of merged) {
+			const otherOverrides = { ...variant.overrides };
+			delete otherOverrides[field];
+			const key = JSON.stringify(otherOverrides);
+			const group = groups.get(key) ?? [];
+			group.push(variant);
+			groups.set(key, group);
+		}
+
+		merged = [...groups.values()].flatMap(group => {
+			const values = new Set(group.map(variant => variant.overrides[field]));
+			if (values.size < 2 || values.has(undefined)) return group;
+			return [{
+				...group[0],
+				probability: group.reduce((sum, variant) => sum + variant.probability, 0),
+			}];
+		});
+	}
+	return merged;
+}
+
+export function getViableSkillConditionMatches(
+	skills: string[],
+	matches: Record<string, SkillConditionMatch> | undefined,
+	isViable: (skillId: string, overrides: SkillConditionVariant['overrides']) => boolean,
+): { skills: string[]; conditions: Record<string, SkillConditionMatch> } {
+	const viableSkills: string[] = [];
+	const viableConditions: Record<string, SkillConditionMatch> = {};
+
+	for (const skillId of skills) {
+		const condition = matches?.[skillId];
+		const candidates = condition?.variants ?? [{
+			overrides: {},
+			probability: 1,
+			alternativeIndex: -1,
+		}];
+		const viable = candidates.filter(variant => isViable(skillId, variant.overrides));
+		if (viable.length === 0) continue;
+
+		viableSkills.push(skillId);
+		if (!condition) continue;
+
+		const byAlternative = new Map<number, SkillConditionVariant[]>();
+		for (const variant of viable) {
+			const group = byAlternative.get(variant.alternativeIndex) ?? [];
+			group.push(variant);
+			byAlternative.set(variant.alternativeIndex, group);
+		}
+
+		const combined = [...byAlternative.values()].flatMap(mergeEquivalentVariants);
+		const deduplicated = new Map<string, SkillConditionVariant>();
+		for (const variant of combined) {
+			const key = getVariantKey(variant.overrides);
+			const existing = deduplicated.get(key);
+			if (!existing || variant.probability > existing.probability) {
+				deduplicated.set(key, variant);
+			}
+		}
+
+		const totalProbability = [...deduplicated.values()].reduce((sum, variant) => sum + variant.probability, 0);
+		const scale = totalProbability > 1 ? 1 / totalProbability : 1;
+		viableConditions[skillId] = {
+			variants: [...deduplicated.values()].map(variant => ({
+				overrides: variant.overrides,
+				probability: variant.probability * scale,
+				alternativeIndex: variant.alternativeIndex,
+			})),
+		};
+	}
+
+	return { skills: viableSkills, conditions: viableConditions };
+}
 
 export function getSkillConditionMatches(
-	skills: Record<string, { alternatives?: { condition?: string }[] }>
+	skills: Record<string, { alternatives?: { condition?: string; precondition?: string }[] }>
 ): Record<string, SkillConditionMatch> {
 	const matches: Record<string, SkillConditionMatch> = {};
-	const fields = ['season', 'weather', 'ground_condition'] as const;
 
 	for (const [skillId, skill] of Object.entries(skills)) {
-		const variants = new Map<string, SkillConditionMatch['variants'][number]>();
+		const variants: SkillConditionVariant[] = [];
 		let hasUnconditionalBranch = false;
+		let hasInvalidWeightedBranch = false;
 
-		for (const alternative of skill.alternatives ?? []) {
-			for (const branch of (alternative.condition ?? '').split('@')) {
-				const overrides: SkillConditionMatch['variants'][number]['overrides'] = {};
+		for (const [alternativeIndex, alternative] of (skill.alternatives ?? []).entries()) {
+			let branches = [''];
+			for (const expression of [alternative.precondition, alternative.condition]) {
+				if (!expression?.trim()) continue;
+				branches = branches.flatMap(prefix =>
+					expression.split('@').map(branch => [prefix, branch].filter(Boolean).join('&'))
+				);
+			}
+
+			const alternativeVariants = new Map<string, SkillConditionVariant>();
+			for (const branch of branches) {
+				const overrides: SkillConditionVariant['overrides'] = {};
 				let probability = 1;
 				let hasRelevantCondition = false;
 				let invalidBranch = false;
 
-				for (const field of fields) {
+				for (const { condition: field, override } of CONDITION_FIELDS) {
 					const values = new Set<number>();
 					const pattern = new RegExp(`(?:^|[^a-z_])${field}==([0-9]+)`, 'g');
 					let match: RegExpExecArray | null;
 					while ((match = pattern.exec(branch)) !== null) {
 						const value = Number(match[1]);
-						if (value > 0 && value < CONDITION_PROBABILITIES[field].length) values.add(value);
+						values.add(value);
 					}
 					if (values.size === 0) continue;
 					if (values.size > 1) {
@@ -94,53 +192,42 @@ export function getSkillConditionMatches(
 					}
 
 					const value = [...values][0];
+					const fieldProbabilities = CONDITION_PROBABILITIES[field as ConditionField];
+					if (value < 1 || value >= fieldProbabilities.length) {
+						invalidBranch = true;
+						break;
+					}
 					hasRelevantCondition = true;
-					if (field === 'season') overrides.season = value;
-					else if (field === 'weather') overrides.weather = value;
-					else overrides.groundCondition = value;
-					probability *= CONDITION_PROBABILITIES[field][value];
+					overrides[override] = value;
+					probability *= fieldProbabilities[value];
 				}
 
-				if (invalidBranch) continue;
+				if (invalidBranch) {
+					hasInvalidWeightedBranch = true;
+					continue;
+				}
 				if (!hasRelevantCondition) {
 					hasUnconditionalBranch = true;
 					break;
 				}
 
-				const key = JSON.stringify(overrides);
-				const existing = variants.get(key);
-				variants.set(key, {
+				const key = getVariantKey(overrides);
+				const existing = alternativeVariants.get(key);
+				alternativeVariants.set(key, {
 					overrides,
 					probability: Math.max(existing?.probability ?? 0, probability),
+					alternativeIndex,
 				});
 			}
 			if (hasUnconditionalBranch) break;
+			variants.push(...alternativeVariants.values());
 		}
 
-		if (!hasUnconditionalBranch && variants.size > 0) {
-			const combinedVariants = new Map<string, SkillConditionMatch['variants'][number]>();
-			for (const variant of variants.values()) {
-				const { groundCondition: _groundCondition, ...otherOverrides } = variant.overrides;
-				const isWetGroundCondition = variant.overrides.groundCondition !== undefined
-					&& variant.overrides.groundCondition > 1;
-				const key = isWetGroundCondition
-					? `wet:${JSON.stringify(otherOverrides)}`
-					: `exact:${JSON.stringify(variant.overrides)}`;
-				const existing = combinedVariants.get(key);
-				combinedVariants.set(key, {
-					overrides: existing?.overrides ?? variant.overrides,
-					probability: (existing?.probability ?? 0) + variant.probability,
-				});
-			}
-
-			const totalProbability = [...combinedVariants.values()].reduce((sum, variant) => sum + variant.probability, 0);
-			const scale = totalProbability > 1 ? 1 / totalProbability : 1;
-			matches[skillId] = {
-				variants: [...combinedVariants.values()].map(variant => ({
-					...variant,
-					probability: variant.probability * scale,
-				})),
-			};
+		if (hasUnconditionalBranch) continue;
+		if (variants.length > 0) {
+			matches[skillId] = { variants };
+		} else if (hasInvalidWeightedBranch) {
+			matches[skillId] = { variants: [] };
 		}
 	}
 
