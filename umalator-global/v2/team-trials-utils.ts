@@ -118,10 +118,21 @@ export function getSkillConditionMatches(
 		}
 
 		if (!hasUnconditionalBranch && variants.size > 0) {
-			const totalProbability = [...variants.values()].reduce((sum, variant) => sum + variant.probability, 0);
+			const combinedVariants = new Map<string, SkillConditionMatch['variants'][number]>();
+			for (const variant of variants.values()) {
+				const { groundCondition: _groundCondition, ...otherOverrides } = variant.overrides;
+				const key = JSON.stringify(otherOverrides);
+				const existing = combinedVariants.get(key);
+				combinedVariants.set(key, {
+					overrides: existing?.overrides ?? variant.overrides,
+					probability: (existing?.probability ?? 0) + variant.probability,
+				});
+			}
+
+			const totalProbability = [...combinedVariants.values()].reduce((sum, variant) => sum + variant.probability, 0);
 			const scale = totalProbability > 1 ? 1 / totalProbability : 1;
 			matches[skillId] = {
-				variants: [...variants.values()].map(variant => ({
+				variants: [...combinedVariants.values()].map(variant => ({
 					...variant,
 					probability: variant.probability * scale,
 				})),

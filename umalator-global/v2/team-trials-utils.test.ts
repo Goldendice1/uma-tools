@@ -48,12 +48,28 @@ test('condition-matched skill data records overrides and occurrence probability'
 	t.ok(Math.abs(matches.seasonal.variants[0].probability - 0.22 * 0.11 * 0.77) < 1e-12);
 	t.deepEqual(matches.multipleQualities.variants.map(item => item.overrides), [
 		{ groundCondition: 2 },
-		{ groundCondition: 3 },
-		{ groundCondition: 4 },
 	]);
-	t.deepEqual(matches.multipleQualities.variants.map(item => item.probability), [0.11, 0.07, 0.05]);
+	t.ok(Math.abs(matches.multipleQualities.variants[0].probability - 0.23) < 1e-12);
 	t.notOk(matches.surfaceOnly, 'surface conditions are not treated as random variants');
 	t.notOk(matches.unconditional);
+	t.end();
+});
+
+test('ground-condition probabilities combine only when other race conditions match', t => {
+	const matches = getSkillConditionMatches({
+		wet: {
+			alternatives: [{
+				condition: 'weather==3&ground_condition==3@weather==3&ground_condition==4@weather==2&ground_condition==4',
+			}],
+		},
+	});
+
+	t.deepEqual(matches.wet.variants.map(item => item.overrides), [
+		{ weather: 3, groundCondition: 3 },
+		{ weather: 2, groundCondition: 4 },
+	]);
+	t.ok(Math.abs(matches.wet.variants[0].probability - 0.0132) < 1e-12);
+	t.ok(Math.abs(matches.wet.variants[1].probability - 0.015) < 1e-12);
 	t.end();
 });
 
