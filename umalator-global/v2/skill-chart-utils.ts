@@ -55,21 +55,22 @@ export function addImplicitZeroHintSkills(
 	hints: Record<string, number>,
 	outfitId: string
 ): Record<string, number> {
-	const result = { ...hints };
-	const addZeroHint = (skillId: string) => {
+	const notInGameSkills = new Set(notInGame.skills);
+	const result = Object.fromEntries(
+		Object.entries(hints).filter(([skillId]) => !notInGameSkills.has(skillId))
+	);
+	const addHint = (skillId: string, level: number) => {
 		if (Object.prototype.hasOwnProperty.call(skilldata, skillId) &&
-			!Object.prototype.hasOwnProperty.call(result, skillId)) {
-			result[skillId] = 0;
+			!notInGameSkills.has(skillId)) {
+			result[skillId] = Math.max(result[skillId] ?? 0, level);
 		}
+	};
+	const addZeroHint = (skillId: string) => {
+		if (!Object.prototype.hasOwnProperty.call(result, skillId)) addHint(skillId, 0);
 	};
 
 	const outfitMatch = /^(\d{4})(\d{2})$/.exec(outfitId);
 	if (outfitMatch) {
-		const characterId = Number(outfitMatch[1]);
-		const outfitNumber = Number(outfitMatch[2]);
-		const uniqueSkillId = String(100001 + (characterId - 1000) * 10 + (outfitNumber - 1) * 10000);
-		addZeroHint(uniqueSkillId);
-
 		type UmaOutfitData = { awakenings?: unknown } | string;
 		type UmaData = { outfits?: Record<string, UmaOutfitData> };
 		const character = (globalUmas as Record<string, UmaData>)[outfitMatch[1]];
@@ -77,6 +78,17 @@ export function addImplicitZeroHintSkills(
 		if (outfit && typeof outfit === 'object' && Array.isArray(outfit.awakenings)) {
 			for (const skillId of outfit.awakenings) {
 				if (typeof skillId === 'string') addZeroHint(skillId);
+			}
+		}
+	}
+
+	for (const [skillId, hintLevel] of Object.entries(result)) {
+		const groupId = skillmeta[skillId]?.groupId;
+		const group = groupId ? skillGroups.get(groupId) : undefined;
+		if (!group) continue;
+		for (const relatedSkillId of group) {
+			if (skilldata[relatedSkillId].rarity === skilldata[skillId].rarity) {
+				addHint(relatedSkillId, hintLevel);
 			}
 		}
 	}
