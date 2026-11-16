@@ -121,7 +121,11 @@ export function getSkillConditionMatches(
 			const combinedVariants = new Map<string, SkillConditionMatch['variants'][number]>();
 			for (const variant of variants.values()) {
 				const { groundCondition: _groundCondition, ...otherOverrides } = variant.overrides;
-				const key = JSON.stringify(otherOverrides);
+				const isWetGroundCondition = variant.overrides.groundCondition !== undefined
+					&& variant.overrides.groundCondition > 1;
+				const key = isWetGroundCondition
+					? `wet:${JSON.stringify(otherOverrides)}`
+					: `exact:${JSON.stringify(variant.overrides)}`;
 				const existing = combinedVariants.get(key);
 				combinedVariants.set(key, {
 					overrides: existing?.overrides ?? variant.overrides,

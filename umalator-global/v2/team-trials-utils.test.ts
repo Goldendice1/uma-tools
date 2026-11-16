@@ -62,6 +62,11 @@ test('ground-condition probabilities combine only when other race conditions mat
 				condition: 'weather==3&ground_condition==3@weather==3&ground_condition==4@weather==2&ground_condition==4',
 			}],
 		},
+		firmAndWet: {
+			alternatives: [{
+				condition: 'ground_condition==1@ground_condition==2@ground_condition==3@ground_condition==4',
+			}],
+		},
 	});
 
 	t.deepEqual(matches.wet.variants.map(item => item.overrides), [
@@ -70,6 +75,12 @@ test('ground-condition probabilities combine only when other race conditions mat
 	]);
 	t.ok(Math.abs(matches.wet.variants[0].probability - 0.0132) < 1e-12);
 	t.ok(Math.abs(matches.wet.variants[1].probability - 0.015) < 1e-12);
+	t.deepEqual(matches.firmAndWet.variants.map(item => item.overrides), [
+		{ groundCondition: 1 },
+		{ groundCondition: 2 },
+	]);
+	t.ok(Math.abs(matches.firmAndWet.variants[0].probability - 0.77) < 1e-12);
+	t.ok(Math.abs(matches.firmAndWet.variants[1].probability - 0.23) < 1e-12);
 	t.end();
 });
 
