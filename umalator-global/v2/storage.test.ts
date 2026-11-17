@@ -27,6 +27,11 @@ test('Umadump import adds prerequisite and awakening skills at level 0 without u
 					{ group_id: 20166, rarity: 2, level: 1 },
 					{ group_id: 20237, rarity: 2, level: 3 },
 					{ group_id: 20001, rarity: 6, level: 1 },
+					{ group_id: 20230, rarity: 1, level: 2 },
+					{ group_id: 20015, rarity: 1, level: 2 },
+					{ group_id: 20043, rarity: 1, level: 2 },
+					{ group_id: 20019, rarity: 1, level: 2 },
+					{ group_id: 20234, rarity: 1, level: 2 },
 				],
 			},
 		},
@@ -45,6 +50,12 @@ test('Umadump import adds prerequisite and awakening skills at level 0 without u
 	}
 	for (const skillId of ['100341', '106701211', '111901111', '200014']) {
 		t.notOk(Object.prototype.hasOwnProperty.call(uma.skillHints, skillId), `${skillId} is excluded from imported hints`);
+	}
+	for (const skillId of ['202302', '200151', '200152', '200432', '200191', '200192', '202342', '202343']) {
+		t.equal(uma.skillHints[skillId], 2, `${skillId} keeps the imported level-2 hint`);
+	}
+	for (const skillId of ['202301', '200154', '200431', '200194', '202341', '202303', '200153', '200433', '200193', '202344']) {
+		t.notOk(Object.prototype.hasOwnProperty.call(uma.skillHints, skillId), `${skillId} is not incorrectly inferred as an available hint`);
 	}
 	t.end();
 });
