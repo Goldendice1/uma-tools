@@ -111,6 +111,27 @@ test('same-rarity skill continuations inherit the shared hint level', t => {
 	t.end();
 });
 
+test('grade-down hints do not infer unavailable upgrade skills', t => {
+	const hints = addImplicitZeroHintSkills({
+		'202302': 2,
+		'200151': 2,
+		'200432': 2,
+		'200191': 2,
+		'202343': 2,
+	}, '');
+
+	for (const skillId of ['202302', '200151', '200152', '200432', '200191', '200192', '202342', '202343']) {
+		t.equal(hints[skillId], 2, `${skillId} retains the available level-2 hint`);
+	}
+	for (const skillId of ['202301', '200154', '200431', '200194', '202341']) {
+		t.notOk(Object.prototype.hasOwnProperty.call(hints, skillId), `${skillId} is not inferred from a grade-down variant`);
+	}
+	for (const skillId of ['202303', '200153', '200433', '200193', '202344']) {
+		t.notOk(Object.prototype.hasOwnProperty.call(hints, skillId), `${skillId} grade-down variant is not treated as an available hint`);
+	}
+	t.end();
+});
+
 test('skill SP cost deducts owned prerequisites and Fast Learner discount', t => {
 	const chain = [...skillGroups.entries()].find(([, ids]) => ids.length > 1);
 	t.ok(chain, 'skill data includes an upgrade chain');

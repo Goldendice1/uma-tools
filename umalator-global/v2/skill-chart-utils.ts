@@ -83,11 +83,14 @@ export function addImplicitZeroHintSkills(
 	outfitId: string
 ): Record<string, number> {
 	const result = Object.fromEntries(
-		Object.entries(hints).filter(([skillId]) => !notInGameSkillSet.has(skillId))
+		Object.entries(hints).filter(([skillId]) =>
+			!notInGameSkillSet.has(skillId) && !isPurpleSkill(skillId)
+		)
 	);
 	const addHint = (skillId: string, level: number) => {
 		if (Object.prototype.hasOwnProperty.call(skilldata, skillId) &&
-			!notInGameSkillSet.has(skillId)) {
+			!notInGameSkillSet.has(skillId) &&
+			!isPurpleSkill(skillId)) {
 			result[skillId] = Math.max(result[skillId] ?? 0, level);
 		}
 	};
